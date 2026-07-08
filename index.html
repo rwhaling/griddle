@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>griddle</title>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      margin: 0;
+      background: #0e0f12;
+      color: #c8cdd6;
+      font-family: "SF Mono", Menlo, monospace;
+      font-size: 13px;
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+    }
+    #sidebar {
+      width: 320px;
+      padding: 16px;
+      border-right: 1px solid #26282f;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      overflow-y: auto;
+    }
+    h1 { font-size: 16px; margin: 0; color: #e8e3d0; letter-spacing: 2px; }
+    h1 span { color: #7fd4a8; }
+    .row { display: flex; gap: 8px; align-items: center; }
+    button {
+      background: #2c2e36; color: #e8e3d0; border: 1px solid #3a3d46;
+      padding: 6px 12px; font: inherit; cursor: pointer; border-radius: 3px;
+    }
+    button:hover { background: #3a3d46; }
+    input, select, textarea {
+      background: #1a1c21; color: #c8cdd6; border: 1px solid #3a3d46;
+      font: inherit; padding: 5px 7px; border-radius: 3px;
+    }
+    input[type="number"] { width: 64px; }
+    select { max-width: 200px; }
+    textarea { width: 100%; box-sizing: border-box; resize: vertical; min-height: 56px; }
+    label { color: #8a8f9a; }
+    .section { display: flex; flex-direction: column; gap: 6px; }
+    .section-title { color: #8a8f9a; text-transform: uppercase; font-size: 11px; letter-spacing: 1px; }
+    #slot-status.ok { color: #7fd4a8; }
+    #slot-status.error { color: #e07a7a; }
+    #status { color: #8a8f9a; }
+    #main { flex: 1; display: flex; align-items: center; justify-content: center; overflow: auto; }
+    #grid { image-rendering: auto; }
+    .help { color: #5a5f6a; line-height: 1.6; }
+    .help b { color: #8a8f9a; font-weight: normal; }
+  </style>
+</head>
+<body>
+  <div id="sidebar">
+    <h1>griddle <span>0.1</span></h1>
+
+    <div class="section">
+      <div class="row">
+        <button id="play">▶ play</button>
+        <label>bpm</label>
+        <input id="bpm" type="number" min="20" max="300" value="120" />
+        <button id="panic" title="all notes off">panic</button>
+      </div>
+      <div class="row">
+        <button id="demo">load demo</button>
+        <button id="clear">clear grid</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">midi</div>
+      <select id="midi-out"></select>
+      <label class="row"><input id="preview" type="checkbox" /> preview synth</label>
+    </div>
+
+    <div class="section">
+      <div class="section-title">pattern bank</div>
+      <div class="row">
+        <label>slot</label>
+        <select id="slot-select"></select>
+        <label>steps</label>
+        <input id="slot-steps" type="number" min="1" max="96" placeholder="auto" />
+      </div>
+      <textarea id="slot-code" spellcheck="false" placeholder="mini-notation, e.g.  0 2 4 &lt;7 9&gt; 4 2"></textarea>
+      <div id="slot-status">empty</div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">reference</div>
+      <div class="help">
+        <b>U</b> slot,pos → bang &nbsp; <b>V</b> slot,pos → value<br/>
+        <b>C</b> rate,mod clock &nbsp; <b>P</b> pendulum &nbsp; <b>R</b> random<br/>
+        <b>N</b> major scale &nbsp; <b>E</b> envelope &nbsp; <b>L/S</b> load/store<br/>
+        <b>Z</b> dev,ch,vel,hold,oct,pitch → midi note<br/>
+        <b>W</b> dev,ch,ctrl,val → midi cc<br/>
+        <b>+−*/%</b> arith &nbsp; <b>=&gt;&lt;&amp;|</b> compare/logic<br/>
+        <b>H</b> hop W→E &nbsp; <b>J</b> jump N→S &nbsp; <b>M</b> multiplex<br/>
+        ops read west, write south · <b>!</b> bang · <b>`</b> toggle power<br/>
+        digits/lowercase = literals · uppercase = operators<br/>
+        drag / <b>⇧arrows</b> select · type fills selection<br/>
+        <b>⌘drag</b> wire (repeat to remove) — writes propagate<br/>
+        <b>⌘C/X/V</b> copy/cut/paste (cells + wires)<br/>
+        <b>⌘↵</b> play/stop · <b>esc</b> collapse selection
+      </div>
+    </div>
+
+    <div id="status">ready</div>
+  </div>
+  <div id="main">
+    <canvas id="grid"></canvas>
+  </div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
