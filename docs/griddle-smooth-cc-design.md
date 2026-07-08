@@ -5,9 +5,13 @@ rendering. Follows `griddle-prototype-0.1-design.md`; targets the implemented
 prototype in `griddle/`.*
 
 Status: **design agreed in discussion (2026-07-07), not yet implemented.**
-Open questions are collected in §8 for a later pass — do not resolve them
-silently at implementation time. A companion design for **MIDI CC inputs**
-is anticipated as a separate doc; §7.3 notes the touchpoints.
+**Amended 2026-07-08** with §6 (14-bit rendering): the user discovered VCV
+Rack (and other receivers) support 14-bit MSB/LSB CC, revising the original
+"no MSB/LSB plumbing" preference — the operators are unchanged; only the
+wire face gained formats. Open questions are collected in §9 for a later
+pass — do not resolve them silently at implementation time. The companion
+design for **MIDI CC inputs** now exists (`griddle-midi-controllers-design.md`);
+§8.3 notes the touchpoints.
 
 ---
 
@@ -25,9 +29,10 @@ drift. Two problems:
    beat). CC rendered at tick resolution is audibly steppy; long transitions
    need many intermediate messages at *finer-than-tick* timing.
 
-Rather than MSB/LSB plumbing, this design adds two **stateful smoothing
-operators** that hold high-resolution internal values and render them to MIDI
-as precisely timed CC message streams:
+Rather than *exposing* MSB/LSB plumbing on the grid, this design adds two
+**stateful smoothing operators** that hold high-resolution internal values
+and render them to MIDI as precisely timed CC message streams (14-bit wire
+formats, added 2026-07-08, live below the grid surface — §6):
 
 - **`G` — glide**: slews from its current value toward a target at an
   adjustable rate (linear for now).
@@ -58,7 +63,7 @@ that pure functions of time cannot express:
 
 So F and G are grid-side stateful operators. Strudel signals remain relevant
 in exactly one future role: as pure **waveshapes** for a stateful phase
-accumulator to scrub (§7.1). State = phase/position accumulation
+accumulator to scrub (§8.1). State = phase/position accumulation
 (imperative, grid); shape = pure function of phase (bank). That
 factorization is the whole griddle thesis in miniature.
 
@@ -74,7 +79,8 @@ is a linear phase sweep through a triangle (piecewise linear, at most one
 fold at a peak/trough per window). The lookahead clock (`griddle/src/clock.js`,
 25ms poll / 150ms horizon) evaluates tick *t* before its wall time `T(t)`.
 So at evaluation time the operator computes *exactly* where its continuous
-line crosses each 7-bit integer boundary inside `[T(t), T(t+1))` and
+line crosses each wire-format boundary inside `[T(t), T(t+1))` — 7-bit
+integers in the base case; the math is lattice-agnostic (§6) — and
 schedules one timestamped CC message per crossing via
 `MIDIOutput.send(data, timestamp)` — the OS driver does the last mile,
 same as note scheduling.
@@ -101,11 +107,13 @@ Each operator has:
 
 - **Grid face (tick-quantized)**: writes a two-byte value pair every tick —
   **coarse at south `(0,1)`, fine at south-east `(1,1)`**. Domain
-  `coarse×36 + fine` = 0–1295 ≈ 3.4× CC resolution (headroom for future
-  14-bit CC / pitch bend). The pair is ordinary grid data: wireable,
-  arithmetic-able; the coarse byte alone feeds legacy consumers.
+  `coarse×36 + fine` = 0–1295 ≈ 3.4× 7-bit CC resolution. The pair is
+  ordinary grid data: wireable, arithmetic-able; the coarse byte alone feeds
+  legacy consumers. (The grid face is a *patching view*, not a fidelity
+  claim — see §6 for how 14-bit wire output exceeds it without contradiction.)
 - **MIDI face (continuous)**: the same internal state rendered analytically
-  to timestamped CC crossings (§3). CC mapping: `cc = floor(v × 127 / 1295)`.
+  to timestamped CC crossings (§3), at the wire format's resolution
+  (7-bit base case: `cc = floor(v × 127 / 1295)`; 14-bit: §6).
 
 The grid never pretends to sub-tick resolution; the MIDI face tells the
 truth about the continuous line. Both are views of one state — divergence is
@@ -122,7 +130,7 @@ nothing. Presence of an address is the switch; no configuration.
   coarse `(0,1)`, fine `(1,1)`.
 - Target is coarse-domain (0–35), scaled ×36 into the fine domain
   (so target `z` = 1260, not 1295 — full-scale means "top coarse step";
-  acceptable, or scale ×36+35 — minor open point, §8.5).
+  acceptable, or scale ×36+35 — minor open point, §9.5).
 - State: current value, **integer fixed-point with sub-units**
   (1296-domain × 64) so ultra-slow rates step cleanly with zero float drift
   and full cross-platform determinism.
@@ -130,7 +138,7 @@ nothing. Presence of an address is the switch; no configuration.
   target.
 - **Bang: snap to target instantly**, emitting one CC message at the new
   value.
-- Rate mapping (open, §8.1) — working proposal: **full-scale traversal in
+- Rate mapping (open, §9.1) — working proposal: **full-scale traversal in
   `r²` ticks** (r=6 → ~4.5s, r=g → 32s, r=z → ~2.5min at 120 BPM).
   Quadratic keeps the low end usable while opening the long end
   ("long, silky, slow" is the design aesthetic).
@@ -153,7 +161,7 @@ nothing. Presence of an address is the switch; no configuration.
 - **Bang: reset accumulator to zero** (output jumps to `shape(offset)`), one
   CC edge emitted. Makes the LFO retriggerable — a `U` reading a euclid
   adjacent to an `F` re-syncs it on the rhythm.
-- Rate mapping (open, §8.1) — working proposal: **period = `4·r²` ticks**
+- Rate mapping (open, §9.1) — working proposal: **period = `4·r²` ticks**
   (r=1 → 1 beat, r=6 → 9 bars, r=z → ~10min). Same quadratic mental model
   as G.
 
@@ -190,7 +198,104 @@ protects cheap MIDI interfaces.
 device/channel/controller) is not arbitrated — last write wins per
 timestamp, as in CLAVIER. User's responsibility.
 
-## 6. Per-cell operator state
+## 6. 14-bit rendering: three resolutions, one truth (added 2026-07-08)
+
+Motivating discovery: VCV Rack's MIDI-CC module (and a handful of hardware
+and software synths) accepts **14-bit CC** — MSB on CC *n*, LSB on CC
+*n+32*, 16,384 levels — enabling very smooth, very slow modulation. Two
+concerns raised: 14-bit exceeds even the two-cell grid pair (1,296), and
+message volume might be unsendable. Both resolve quantitatively.
+
+### 6.1 The resolution ladder
+
+The internal fixed-point state specified in §4.2 (1296 × 64 = **82,944
+levels**) already exceeds 14-bit by 5.06×. The §4.1 principle — the MIDI
+face tells the truth about the continuous line — extends from *time* to
+*amplitude*:
+
+| layer | levels | role |
+|---|---|---|
+| internal state | 82,944 | the single truth |
+| wire face | 16,384 (14-bit) / 128 (7-bit) | truest projection the receiver accepts |
+| grid face | 1,296 (pair) / 36 (coarse) | patching view, not a fidelity claim |
+
+Coarse *inputs* do not poison 14-bit *outputs*: G's target is one of 36
+values, but what is heard is the **journey between targets**, and the
+journey is the continuum, rendered at wire resolution. Same for F — rate
+and offset are quantized; the triangle's output sweeps everything between.
+The base-36 aesthetic governs destinations and controls; the wire renders
+motion. Static values (bare `W` sends) stay coarse — they need no
+smoothness by definition. Endpoint precision: internal quantization error
+< 0.2 LSB₁₄.
+
+The crossing machinery (§3, §5) is **lattice-agnostic**: same closed-form
+math over 16,383 boundaries instead of 127. The §5 event gains a format
+field; nothing else changes.
+
+### 6.2 Wire formats and the output map
+
+14-bitness is a property of the *receiver*, not the modulation. It lives in
+a declarative **output map** — per (device, channel, controller):
+`cc7 | cc14 | bend` (NRPN a future fourth, §8.2) — consulted by F, G, and
+W alike. Echoes strudel's `midimaps` and the controllers doc's
+dumb-profiles principle; no mode ports burned, no new grid syntax.
+
+MSB/LSB discipline (where implementations usually go wrong):
+
+- **Pair at MSB change**: MSB (CC n) then LSB (CC n+32), immediately
+  adjacent, both timestamped. Receivers applying on either message see an
+  inaudibly brief intermediate.
+- **LSB-only within runs**: the MSB changes only 127 times across a full
+  sweep (~0.8% of transitions) — everything else is a single LSB message.
+  Halves the naive message count.
+- **The MSB-resets-LSB trap**: some receivers zero the LSB on a bare MSB —
+  the two rules above make bare MSBs impossible.
+
+**Pitch bend is the sleeper option**: native 14-bit in a single atomic
+3-byte message — no pairing, no reset trap, half the bytes, universal
+support, and VCV exposes the pitch wheel as a CV source. For
+one-parameter-per-channel modulation, bend-on-a-dedicated-channel is a poor
+man's CV output and arguably the best wire format available. Identical
+rendering machinery.
+
+### 6.3 Message budget and adaptive decimation
+
+Full-range sweep, one 14-bit stream, LSB-run discipline applied:
+
+| full-range sweep time | ideal msg rate | share of DIN (~1,040 msg/s) |
+|---|---|---|
+| 1s | ~16,400/s | impossible — decimate |
+| 10s | ~1,640/s | >100% — decimate |
+| 60s | ~275/s | ~26% |
+| 5 min | ~55/s | ~5% |
+| 20 min | ~14/s | ~1% |
+
+Two facts make this benign. **The stated aesthetic — very slow — is
+exactly where full 14-bit is nearly free.** And the primary target (VCV) is
+reached via virtual MIDI (IAC on macOS), where the 31,250-baud DIN
+bottleneck does not exist; the DIN column matters only for hardware.
+
+**Adaptive decimation** handles the fast case gracefully: when the ideal
+crossing rate exceeds a per-stream budget (~250 msg/s default, open §9.8),
+coarsen the boundary lattice — emit crossings of every *k*-th 14-bit step,
+k chosen to fit, still analytically timestamped. Perceptual math: a
+10-second full sweep decimated to 250 msg/s steps by ~6.5 LSB₁₄ every 4ms —
+still ~20× finer than 7-bit, and fast motion masks steps anyway. Resolution
+inversely proportional to speed matches how hearing works: slow = fine
+(silky drones), fast = coarse (inaudible either way).
+
+**Arbitration**: token bucket per output *port*, notes and transport
+prioritized over CC — a late note is worse than a coarser CC step. This
+subsumes §5's flat per-operator cap.
+
+### 6.4 Known gap
+
+Precise *static* 14-bit values are out of reach: coarse targets give 1,296
+destinations (~9 cents granularity on a 10-octave V/oct mapping). Real
+limitation for exact-pitch-offset use in VCV; irrelevant for modulation.
+Whether G grows an optional fine-target port is open (§9.7).
+
+## 7. Per-cell operator state
 
 New machine facility:
 
@@ -204,9 +309,9 @@ New machine facility:
 - **State is positional**: an operator moved by velocity leaves its state
   behind (documented; arguably exploitable). Stale entries swept lazily.
 
-## 7. Future directions (recorded, not designed)
+## 8. Future directions (recorded, not designed)
 
-### 7.1 Waveshapes from the pattern bank
+### 8.1 Waveshapes from the pattern bank
 `F`'s triangle is a placeholder, deliberately **not** an enum of shapes: the
 enum wants to become a slot reference. Growth path: the accumulator drives a
 fine-resolution position into a bank slot read as a wavetable — the V-style
@@ -216,13 +321,14 @@ waveshape, scrubbed by imperative phase — the state/shape factorization of
 §2 realized. Crossing math requires only piecewise-linear sampling, which a
 wavetable is by construction.
 
-### 7.2 14-bit CC / pitch bend
-The 1296-level internal domain exceeds 7-bit by 3.4×; MSB/LSB CC pairs
-(cc n / n+32) or pitch bend would use it fully. Explicitly out of scope now
-(user preference), but the two-byte grid face and internal fixed-point were
-chosen so this needs no rework.
+### 8.2 NRPN
+The original 14-bit stub here was superseded by §6 (designed 2026-07-08).
+Remaining future item: **NRPN** (CC 98/99 addressing + CC 6/38 data) for the
+many hardware synths that prefer it over CC pairs — a fourth entry in the
+§6.2 output-map format enum; same rendering, more setup bytes per parameter
+switch, cheap within a single-parameter stream.
 
-### 7.3 MIDI CC *inputs* (anticipated companion design)
+### 8.3 MIDI CC *inputs* (anticipated companion design)
 A follow-up design doc is planned for CC input. Touchpoints to keep in mind
 here: strudel's input side (`midi/input.mjs`, `MidiInput`, `createCC` refs
 with localStorage persistence) is the reference implementation; an incoming
@@ -232,12 +338,12 @@ established here is the obvious representation for high-res input values.
 Determinism note: live CC input is exactly the kind of true nondeterminism
 the 0.1 doc's "determinism boundary" reserves for grid-side entry.
 
-### 7.4 Other curves
+### 8.4 Other curves
 Exponential/equal-power glides, sine LFO: all remain closed-form or
 piecewise-linear-approximable; the crossing contract (§5) is the stable
 interface. Linear/triangle first, by explicit choice.
 
-## 8. Open questions (deferred by user, 2026-07-07)
+## 9. Open questions (deferred by user, 2026-07-07; 7–8 added 2026-07-08)
 
 1. **Rate curves.** Quadratic for both (`r²` ticks full-scale for G;
    `4·r²` ticks period for F) is the working proposal. Alternatives: linear
@@ -258,8 +364,14 @@ interface. Linear/triangle first, by explicit choice.
 6. **Glyph confirmation.** `G` glide, `F` LFO (both free in the ported tag
    space; D/K/O remain free). Any collision with future plans (e.g. D as a
    dedicated clock-divider from the fractional-time discussion)?
+7. **Fine-target port for G** — does the V/oct precision case (§6.4) merit
+   an optional second target cell (pair-input, 1,296 destinations already;
+   or a third cell for full 14-bit)? Working: no, until a real patch needs it.
+8. **Per-port message budgets** — 250 msg/s per stream is a placeholder;
+   right defaults differ for DIN vs virtual ports. Measurable, same spirit
+   as the clock doc's jitter spike.
 
-## 9. Testing plan (headless, vitest)
+## 10. Testing plan (headless, vitest)
 
 - G converges to target; step size matches rate formula; clamps exactly;
   bang snaps; unpowered freezes.
@@ -273,15 +385,22 @@ interface. Linear/triangle first, by explicit choice.
   (values + fracs).
 - Grid face: pair written south/south-east, wire propagation applies,
   coarse-only consumption works.
+- 14-bit (§6): crossing generator parameterized by lattice size (127 vs
+  16,383 — same fracs scale); LSB-run protocol (bare MSB never emitted;
+  pair exactly at MSB transitions); decimation fits budget while keeping
+  endpoints and monotonicity; bend format emits single messages;
+  output-map dispatch (same operator, three formats).
 
-## 10. Source references
+## 11. Source references
 
 | What | Where |
 |---|---|
 | CLAVIER `W` scan semantics (power AND bang, ×127/35) | `CLAVIER-36/src/ring.c` ~635–650 |
 | CLAVIER raw CC send | `CLAVIER-36/src/midi.c:111` (CoreMIDI), `:188` (Win) |
 | Strudel CC send (pattern-triggered, 0–1 ×127) | `strudel/packages/midi/midi.mjs:185` (`sendCC`), `:87–159` (`midicontrolMap`) |
-| Strudel CC input (for §7.3 follow-up) | `strudel/packages/midi/input.mjs:16–150` |
+| Strudel CC input (for §8.3 follow-up) | `strudel/packages/midi/input.mjs:16–150` |
+| Strudel midimaps (precedent for the §6.2 output map) | `strudel/packages/midi/midi.mjs:87–159` |
+| VCV Rack 14-bit CC (MIDI-CC module, "14-bit" toggle; MSB n / LSB n+32) | external — VCV Rack core module docs |
 | Griddle lookahead clock (25ms/150ms) | `griddle/src/clock.js` |
 | Griddle post-step MIDI scan to extend | `griddle/src/interpreter.js` (`scanMidi`) |
 | Host tick → timestamped sends | `griddle/src/main.js` (onTick), `griddle/src/midi.js` |
