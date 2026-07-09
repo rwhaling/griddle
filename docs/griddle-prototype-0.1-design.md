@@ -209,6 +209,11 @@ file) or live MIDI input. Keep this boundary legible — it's a feature.
 > pulse-count-locked ticks; clock-source seam in clock.js worth adopting
 > early) is designed in `griddle-midi-clock-design.md` — explicitly out of
 > 0.1; receive instrumentation deferred to a future pass.
+>
+> 2026-07-08: Ableton bridge (single M4L hub device, 36 map slots, one
+> WebSocket; F/G segments rendered by line~/live.remote~ — CV-grade, since
+> Live's MIDI map is 7-bit-only) is designed in
+> `griddle-ableton-bridge-design.md` — spike required before building.
 
 - **Full Strudel expressions in slots** — adds `@strudel/transpiler` (+ acorn,
   escodegen). Mini-notation only for 0.1. Mondo notation (`@strudel/mondo`,
