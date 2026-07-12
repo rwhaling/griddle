@@ -17,6 +17,10 @@ import {
   getType, getVelocity, getPower, makeFlags, setVelocity, IMPLEMENTED_OPS,
 } from './values.js';
 import { PCG } from './pcg.js';
+import {
+  PHASE, face1296, cc7, targetInternal, glideStep, lfoInc, offsetPhase,
+  triAt, lfoPieces, scaleV, crossings,
+} from './modulation.js';
 
 const NONE = { flags: 0, letter: 0 };
 const BANG = { flags: makeFlags(TYPE.BANG), letter: 0 };
@@ -78,6 +82,12 @@ export class Machine {
     // so the source is the endpoint earlier in reading order — recursion in
     // setTransitive therefore always moves forward and terminates.
     this.wires = new Map();
+    // per-cell operator state (F/G smoothing), keyed by position with the
+    // tag as a guard; reset on play, swept when the operator disappears
+    this.opState = new Map();
+    // sub-tick CC events emitted by F/G this step: {device, channel,
+    // controller, value7, frac} with frac in [0,1) of the tick window
+    this.ccEvents = [];
   }
 
   // the latest completed state; the editor reads and writes this
@@ -152,6 +162,8 @@ export class Machine {
     this.metronome = 0;
     this.rng = new PCG(0x36n);
     this.registers = Array.from({ length: RADIX }, () => ({ ...NONE }));
+    this.opState.clear();
+    this.ccEvents = [];
   }
 
   step() {
@@ -186,6 +198,8 @@ export class Machine {
     }
 
     // ---- phase 2: evaluation (reading order, in place on dst) ----
+    this.ccEvents = [];
+    this.touchedOps = new Set();
     const m = dst;
     for (let y = 0; y < this.height; y++) {
       for (let x = 0; x < this.width; x++) {
@@ -197,15 +211,21 @@ export class Machine {
           const [adx, ady] = DIR_VEC[d];
           if (getType(m.get(x + adx, y + ady).flags) === TYPE.BANG) bang = true;
         }
-        if (!getPower(value.flags) && !bang) continue;
+        const power = getPower(value.flags);
+        if (!power && !bang) continue;
 
         // reads at origin - offset; writes at origin + offset (and propagate
         // through wires, per CLAVIER's record_write -> memory_set_transitive)
         const read = (ox, oy) => m.get(x - ox, y - oy);
         const write = (ox, oy, cell) => this.setTransitive(m, x + ox, y + oy, cell);
 
-        this.evalOperator(value.letter, read, write, m, x, y);
+        this.evalOperator(value.letter, read, write, m, x, y, power, bang);
       }
+    }
+
+    // sweep state for operators that no longer exist at their position
+    for (const key of this.opState.keys()) {
+      if (!this.touchedOps.has(key)) this.opState.delete(key);
     }
 
     this.metronome += 1;
@@ -216,7 +236,31 @@ export class Machine {
     this.dst = tmp;
   }
 
-  evalOperator(tag, read, write, m, x, y) {
+  // F/G helper: queue sub-tick CC events if the operator is addressed
+  // (controller cell is a literal — opt-in by addressing). `pieces` is the
+  // piecewise-linear trajectory over this tick window; `disc` means a
+  // discontinuity (snap/reset): one edge, no staircase burst.
+  emitCC(st, addr, currentV, pieces, disc) {
+    if (getType(addr.controllerCell.flags) !== TYPE.LITERAL) return;
+    const device = addr.device;
+    const channel = addr.channel;
+    const controller = addr.controllerCell.letter;
+    if (disc || !pieces) {
+      const c = cc7(currentV);
+      if (c !== st.lastCC) {
+        this.ccEvents.push({ device, channel, controller, value7: c, frac: 0 });
+        st.lastCC = c;
+      }
+      return;
+    }
+    const result = crossings(pieces, st.lastCC);
+    for (const e of result.events) {
+      this.ccEvents.push({ device, channel, controller, ...e });
+    }
+    st.lastCC = result.lastCC;
+  }
+
+  evalOperator(tag, read, write, m, x, y, power, bang) {
     switch (tag) {
       case OP.ADD: {
         const a = readLiteral(read(2, 0), 0);
@@ -421,6 +465,98 @@ export class Machine {
             ? 1 + (vv.letter % 4)
             : 0;
         m.set(x + xv, y + yv + 1, { flags: setVelocity(iv.flags, d), letter: iv.letter });
+        break;
+      }
+      case OP.GLIDE: {
+        // G: slew toward target at quadratic rate; two faces of one state
+        // (grid pair at tick resolution, CC crossings sub-tick). Unpowered =
+        // frozen, even when banged; powered + bang = snap to target.
+        if (!power) break;
+        const key = `${x},${y}`;
+        let st = this.opState.get(key);
+        const targetCell = read(2, 0);
+        const hasTarget = getType(targetCell.flags) === TYPE.LITERAL;
+        const target = hasTarget ? targetInternal(targetCell.letter) : null;
+        if (!st || st.tag !== OP.GLIDE) {
+          // init at target: a freshly placed G arrives instantly, no
+          // surprise sweep from zero
+          st = { tag: OP.GLIDE, v: target ?? 0, lastCC: null };
+          this.opState.set(key, st);
+        }
+        this.touchedOps.add(key);
+        const goal = target ?? st.v; // no target cell -> hold position
+        const oldV = st.v;
+        let pieces = null;
+        let disc = false;
+        if (bang) {
+          st.v = goal;
+          disc = true;
+        } else {
+          const step = glideStep(readLiteral(read(1, 0), 8));
+          if (st.v < goal) st.v = Math.min(goal, st.v + step);
+          else if (st.v > goal) st.v = Math.max(goal, st.v - step);
+          pieces = [{ v0: oldV, v1: st.v, f0: 0, f1: 1 }];
+        }
+        this.emitCC(
+          st,
+          {
+            device: readLiteral(read(5, 0), 0),
+            channel: readLiteral(read(4, 0), 0),
+            controllerCell: read(3, 0),
+          },
+          st.v,
+          pieces,
+          disc,
+        );
+        const face = face1296(st.v);
+        write(0, 1, lit(Math.floor(face / 36)));
+        write(1, 1, lit(face % 36));
+        break;
+      }
+      case OP.LFO: {
+        // F: triangle phase accumulator; rate changes never touch the
+        // accumulator (no phase jump); bang resets phase; offset applied at
+        // read time; min/max ports scale the output (min > max inverts).
+        if (!power) break;
+        const key = `${x},${y}`;
+        let st = this.opState.get(key);
+        if (!st || st.tag !== OP.LFO) {
+          st = { tag: OP.LFO, phase: 0, lastCC: null };
+          this.opState.set(key, st);
+        }
+        this.touchedOps.add(key);
+        const lo = targetInternal(readLiteral(read(4, 0), 0));
+        const hi = targetInternal(readLiteral(read(3, 0), 35));
+        const off = offsetPhase(readLiteral(read(1, 0), 0));
+        let pieces = null;
+        let disc = false;
+        if (bang) {
+          st.phase = 0;
+          disc = true;
+        } else {
+          const inc = lfoInc(readLiteral(read(2, 0), 8));
+          pieces = lfoPieces(st.phase + off, inc).map((p) => ({
+            ...p,
+            v0: scaleV(p.v0, lo, hi),
+            v1: scaleV(p.v1, lo, hi),
+          }));
+          st.phase = (st.phase + inc) % PHASE;
+        }
+        const outV = scaleV(triAt(st.phase + off), lo, hi);
+        this.emitCC(
+          st,
+          {
+            device: readLiteral(read(7, 0), 0),
+            channel: readLiteral(read(6, 0), 0),
+            controllerCell: read(5, 0),
+          },
+          outV,
+          pieces,
+          disc,
+        );
+        const face = face1296(outV);
+        write(0, 1, lit(Math.floor(face / 36)));
+        write(1, 1, lit(face % 36));
         break;
       }
       case OP.PATTERN_BANG: {

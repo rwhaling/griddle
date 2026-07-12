@@ -94,7 +94,9 @@
         <b>C</b> rate,mod clock &nbsp; <b>P</b> pendulum &nbsp; <b>R</b> random<br/>
         <b>N</b> major scale &nbsp; <b>E</b> envelope &nbsp; <b>L/S</b> load/store<br/>
         <b>Z</b> dev,ch,vel,hold,oct,pitch → midi note<br/>
-        <b>W</b> dev,ch,ctrl,val → midi cc<br/>
+        <b>W</b> dev,ch,ctrl,val → midi cc (bang-discrete)<br/>
+        <b>G</b> dev,ch,ctrl,tgt,rate → glide (smooth cc)<br/>
+        <b>F</b> dev,ch,ctrl,min,max,rate,phase → lfo (smooth cc)<br/>
         <b>+−*/%</b> arith &nbsp; <b>=&gt;&lt;&amp;|</b> compare/logic<br/>
         <b>H</b> hop W→E &nbsp; <b>J</b> jump N→S &nbsp; <b>M</b> multiplex<br/>
         ops read west, write south · <b>!</b> bang · <b>`</b> toggle power<br/>

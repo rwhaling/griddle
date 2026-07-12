@@ -4,14 +4,19 @@
 rendering. Follows `griddle-prototype-0.1-design.md`; targets the implemented
 prototype in `griddle/`.*
 
-Status: **design agreed in discussion (2026-07-07), not yet implemented.**
+Status: **implemented (phase 1) 2026-07-12** — 7-bit MIDI only, per user
+scoping; §6 (14-bit) and the Ableton bridge are designed but deferred to
+later phases. Implementation: `griddle/src/modulation.js` (pure math),
+`interpreter.js` (F/G cases, opState, ccEvents), `main.js` (sub-tick sends,
+5ms/stream cap); tests in `test/smoothcc.test.js`. §9 open questions were
+resolved with the user on 2026-07-12 (annotations inline), including one
+**revision**: F gained min/max amplitude ports (§4.3) after realizing grid
+arithmetic cannot scale the sub-tick CC stream — see §9.4.
 **Amended 2026-07-08** with §6 (14-bit rendering): the user discovered VCV
 Rack (and other receivers) support 14-bit MSB/LSB CC, revising the original
 "no MSB/LSB plumbing" preference — the operators are unchanged; only the
-wire face gained formats. Open questions are collected in §9 for a later
-pass — do not resolve them silently at implementation time. The companion
-design for **MIDI CC inputs** now exists (`griddle-midi-controllers-design.md`);
-§8.3 notes the touchpoints.
+wire face gained formats. The companion design for **MIDI CC inputs** exists
+(`griddle-midi-controllers-design.md`); §8.3 notes the touchpoints.
 
 ---
 
@@ -128,9 +133,12 @@ nothing. Presence of an address is the switch; no configuration.
 - Ports (west, postfix convention — hot inputs nearest):
   `device(5), channel(4), controller(3), target(2), rate(1)`; outputs
   coarse `(0,1)`, fine `(1,1)`.
-- Target is coarse-domain (0–35), scaled ×36 into the fine domain
-  (so target `z` = 1260, not 1295 — full-scale means "top coarse step";
-  acceptable, or scale ×36+35 — minor open point, §9.5).
+- Target is coarse-domain (0–35), scaled **×37** into the fine domain —
+  0 → 0 and z → 1295 exactly, so a max target reaches CC 127 (§9.5
+  resolution; the ×36 draft topped out at CC 123). Implementation details:
+  a freshly placed G initializes *at* its target (no surprise sweep from
+  zero); an empty target cell means hold position; rate default 8; rate 0 =
+  instant (a value-follower).
 - State: current value, **integer fixed-point with sub-units**
   (1296-domain × 64) so ultra-slow rates step cleanly with zero float drift
   and full cross-platform determinism.
@@ -145,8 +153,14 @@ nothing. Presence of an address is the switch; no configuration.
 
 ### 4.3 `F` — LFO
 
-- Ports (west): `device(5), channel(4), controller(3), rate(2), offset(1)`;
-  outputs coarse `(0,1)`, fine `(1,1)`.
+- Ports (west): `device(7), channel(6), controller(5), min(4), max(3),
+  rate(2), offset(1)`; outputs coarse `(0,1)`, fine `(1,1)`.
+- **min/max (amplitude, added at implementation 2026-07-12)**: the triangle
+  is lerped into `[min×37, max×37]` (defaults 0/35 = full range when
+  unwired); **min > max inverts the waveform**; min = max is a constant.
+  Rationale in §9.4 — grid arithmetic cannot scale the sub-tick CC stream,
+  so amplitude must live inside the operator. Scaling is linear-in-linear,
+  so pieces stay piecewise linear and the crossing math is untouched.
 - State: phase accumulator, fixed-point. Each tick
   `phase = (phase + increment(rate)) mod 1`.
 - **Rate changes never touch the accumulator** — that is the point of the
@@ -343,33 +357,30 @@ Exponential/equal-power glides, sine LFO: all remain closed-form or
 piecewise-linear-approximable; the crossing contract (§5) is the stable
 interface. Linear/triangle first, by explicit choice.
 
-## 9. Open questions (deferred by user, 2026-07-07; 7–8 added 2026-07-08)
+## 9. Open questions — RESOLVED 2026-07-12 (annotations inline)
 
-1. **Rate curves.** Quadratic for both (`r²` ticks full-scale for G;
-   `4·r²` ticks period for F) is the working proposal. Alternatives: linear
-   (legible, short max), or G counting in *beats* (`r²` beats → up to
-   ~10min glides). Recommendation: implement quadratic, tune in a jam
-   session — the formulas are one-liners.
-2. **Port order.** Working proposal: device/channel/controller as far
-   (set-and-forget) inputs, target/rate (G) and rate/offset (F) nearest
-   (hot), matching Z's convention. Confirm before implementation.
-3. **Pair layout.** South `(0,1)` + south-east `(1,1)` proposed (keeps the
-   next row free for a consumer reading both as west-adjacent inputs).
-   Alternative: vertical stack.
-4. **F output depth/scaling.** No depth/min/max ports in this draft (use
-   grid arithmetic on the coarse byte, or wait for CC-input doc's mapping
-   ideas?). A depth port is a plausible 6th input if jams demand it.
-5. **Target scaling.** `target × 36` tops out at 1260, not 1295 (§4.2) — is
-   "coarse-step top" acceptable, or scale to true full-scale?
-6. **Glyph confirmation.** `G` glide, `F` LFO (both free in the ported tag
-   space; D/K/O remain free). Any collision with future plans (e.g. D as a
-   dedicated clock-divider from the fractional-time discussion)?
-7. **Fine-target port for G** — does the V/oct precision case (§6.4) merit
-   an optional second target cell (pair-input, 1,296 destinations already;
-   or a third cell for full 14-bit)? Working: no, until a real patch needs it.
-8. **Per-port message budgets** — 250 msg/s per stream is a placeholder;
-   right defaults differ for DIN vs virtual ports. Measurable, same spirit
-   as the clock doc's jitter spike.
+1. **Rate curves.** ✔ **Quadratic, user-confirmed** (`r²` ticks full-scale
+   for G; `4·r²` ticks period for F). One-liners in `modulation.js`; retune
+   in a jam session if needed.
+2. **Port order.** ✔ **Set-and-forget far, user-confirmed** — addressing at
+   the far west, hot inputs nearest the glyph, matching Z's convention.
+3. **Pair layout.** ✔ South `(0,1)` + south-east `(1,1)` as proposed.
+4. **F output depth/scaling.** ✔ **REVISED — min/max ports added** (§4.3).
+   The draft's "use grid arithmetic" was wrong for the MIDI face: grid
+   operators can only touch the tick-quantized coarse byte, while the CC
+   stream renders from the internal trajectory and never passes through the
+   grid. Without amplitude, every F is a full-range 0–127 sweep. min/max
+   (CLAVIER `A`-style vocabulary) fixes this; inversion via min > max is a
+   free idiom. Raised by the user mid-implementation.
+5. **Target scaling.** ✔ **×37** — exact 0 and full-scale endpoints,
+   superseding both drafted options (§4.2).
+6. **Glyphs.** ✔ `F`/`G` confirmed; D/K/O remain free (D still reserved
+   informally for a future clock-divider).
+7. **Fine-target port for G.** Deferred with the 14-bit phase (moot at
+   7-bit). Working answer unchanged: not until a real patch needs it.
+8. **Per-port budgets.** Deferred with the 14-bit phase. Phase 1 uses the
+   §5 cap (5ms per stream, final value always kept), which suffices for
+   7-bit rates.
 
 ## 10. Testing plan (headless, vitest)
 

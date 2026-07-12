@@ -53,6 +53,20 @@ const clock = new Clock({
         midi.cc(e.channel, e.controller, e.value, timeMs);
       }
     }
+    // F/G smooth-CC crossings: sub-tick timestamps, thinned to >=5ms per
+    // stream (always keeping each stream's final value of the tick)
+    const MIN_CC_MS = 5;
+    const lastSent = new Map();
+    const finalIdx = new Map();
+    machine.ccEvents.forEach((e, i) => finalIdx.set(`${e.device}:${e.channel}:${e.controller}`, i));
+    machine.ccEvents.forEach((e, i) => {
+      const key = `${e.device}:${e.channel}:${e.controller}`;
+      const at = timeMs + e.frac * tickMs;
+      const prev = lastSent.get(key);
+      if (prev !== undefined && at - prev < MIN_CC_MS && finalIdx.get(key) !== i) return;
+      lastSent.set(key, at);
+      midi.cc(e.channel, e.controller, e.value7, at);
+    });
   },
 });
 

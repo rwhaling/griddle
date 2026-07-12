@@ -31,7 +31,7 @@ const COLORS = {
 };
 
 const PATTERN_TAGS = new Set([30, 31]); // U, V
-const MIDI_TAGS = new Set([32, 35]); // W, Z
+const MIDI_TAGS = new Set([15, 16, 32, 35]); // F, G, W, Z
 
 export class GridUI {
   constructor(canvas, machine, { onEdit } = {}) {

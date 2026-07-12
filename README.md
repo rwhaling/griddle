@@ -101,14 +101,36 @@ grid's own state — `rev` is wiring, phasing is two readers at different rates.
 | `P` | pendulum | mod, rate | bang every rate×mod |
 | `Q` | quote | index | literal → operator |
 | `R` | random | mod, rate | random literal |
+| `F` | lfo | phase, rate, max, min, ctrl, ch, dev | smooth CC + coarse/fine pair |
+| `G` | glide | rate, tgt, ctrl, ch, dev | smooth CC + coarse/fine pair |
 | `U` | pattern bang | pos, slot | bang from pattern |
 | `V` | pattern value | pos, slot | value from pattern |
-| `W` | midi cc | val, ctrl, ch, dev | sends CC |
+| `W` | midi cc | val, ctrl, ch, dev | sends CC (bang-discrete) |
 | `Z` | midi note | pitch, oct, hold, vel, ch, dev | sends note |
 
 `Z`/`W` fire post-tick when powered **and** adjacent to a bang (CLAVIER's
 ring_trigger convention). MIDI note = 12×octave + pitch; hold is in ticks
 (33-35 = that many −32 bars of 32 ticks).
+
+### Smooth CC: F (LFO) and G (glide)
+
+Stateful modulation operators (design: `docs/griddle-smooth-cc-design.md`).
+Both hold a high-resolution internal value, write a **coarse+fine pair**
+south / south-east each tick, and — when their controller cell holds a
+literal (opt-in by addressing) — render their continuous trajectory as
+**timestamped CC messages at each 7-bit boundary crossing**, sub-tick
+accurate, so slow sweeps are the cleanest staircase 7-bit MIDI can express.
+
+- `G` slews toward its target; full scale takes rate² ticks (rate 0 =
+  instant); a bang **snaps** to target (one CC edge). A fresh G starts at
+  its target — no surprise sweep.
+- `F` is a triangle phase accumulator: **rate changes never jump the
+  phase**; a bang **resets** it; the phase-offset port makes two Fs a
+  quadrature pair; min/max scale the output (min > max inverts). Period =
+  4·rate² ticks (rate 1 = one beat).
+
+Unpowered F/G freeze. 14-bit CC / pitch bend and the Ableton bridge are
+designed (see `docs/`) but not yet implemented — 7-bit only for now.
 
 ### Timing
 

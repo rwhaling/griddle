@@ -49,6 +49,8 @@ export const OP = {
   BOTTOM: 11, // B
   CLOCK: 12, // C
   ENVELOPE: 14, // E (relocated from CLAVIER's V)
+  LFO: 15, // F (griddle: smooth-CC LFO)
+  GLIDE: 16, // G (griddle: smooth-CC glide/slew)
   HOP: 17, // H
   INTERFERE: 18, // I
   JUMP: 19, // J
