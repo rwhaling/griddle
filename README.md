@@ -37,10 +37,29 @@ operators run only when adjacent to a bang.
 ### Editing
 
 Drag (or shift+arrows) makes a rectangular selection; typing fills it,
-backspace/delete/`.` clears it, `` ` `` toggles power across it. **⌘C/⌘X/⌘V**
-copy/cut/paste a selection — including any wires whose endpoints are both
-inside it; cut severs wires that cross the boundary. Copy also puts a
-plain-text rendering of the region on the system clipboard.
+backspace/delete/`.` clears it, `` ` `` toggles power across it, **⌘A**
+selects all. **⌘C/⌘X/⌘V** copy/cut/paste a selection — including any wires
+whose endpoints are both inside it; cut severs wires that cross the
+boundary. Copy also puts a plain-text rendering of the region on the system
+clipboard.
+
+**`#` mutes/unmutes the selection** (comment-out): muted operators don't
+evaluate — clocks stop, F/G stop sending, Z/W never fire — and render
+dimmed. Mute is a cell flag, so it persists and travels with copy/paste.
+Note: a muted F/G loses its runtime state; unmuting re-initializes (G
+arrives at its target, F restarts at phase 0). Handy for Ableton's CC-map
+mode: ⌘A, `#`, then unmute just the operator you're mapping.
+
+The grid defaults to 64×32 (resizable up to 128×64 in the sidebar, content
+preserved) and the window is a **viewport**: the camera follows the cursor,
+so arrows and typing auto-pan — no mouse needed. **⌥arrows** leap 8 cells;
+**`[` / `]`** zoom out/in (14–34px cells). The status line shows cursor
+coordinates.
+
+**Patches**: every edit auto-saves to localStorage and survives reload (but
+"load demo"/"clear grid" overwrite that single slot). **save patch /
+load patch** export and import the full state — grid, wires, slots, size,
+bpm — as a JSON file.
 
 ### Wires
 

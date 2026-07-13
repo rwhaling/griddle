@@ -18,10 +18,13 @@ export const CARDINALS = [DIR.N, DIR.E, DIR.S, DIR.W];
 
 const SHIFT_VELOCITY = 2;
 const SHIFT_POWER = 5;
+const SHIFT_MUTE = 6; // griddle addition: bit 6 (unused in CLAVIER) = muted
 
 export const getType = (flags) => flags & 0b11;
 export const getVelocity = (flags) => (flags >> SHIFT_VELOCITY) & 0b111;
 export const getPower = (flags) => (flags >> SHIFT_POWER) & 1;
+export const getMuted = (flags) => (flags >> SHIFT_MUTE) & 1;
+export const MUTE_BIT = 1 << SHIFT_MUTE;
 
 export const makeFlags = (type, velocity = 0, power = 0) =>
   (type & 0b11) | ((velocity & 0b111) << SHIFT_VELOCITY) | ((power & 1) << SHIFT_POWER);

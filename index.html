@@ -46,8 +46,10 @@
     #slot-status.ok { color: #7fd4a8; }
     #slot-status.error { color: #e07a7a; }
     #status { color: #8a8f9a; }
-    #main { flex: 1; display: flex; align-items: center; justify-content: center; overflow: auto; }
-    #grid { image-rendering: auto; }
+    #main { flex: 1; overflow: hidden; }
+    #grid { display: block; image-rendering: auto; }
+    .file-label { display: inline-block; }
+    .file-label input { display: none; }
     .help { color: #5a5f6a; line-height: 1.6; }
     .help b { color: #8a8f9a; font-weight: normal; }
   </style>
@@ -66,6 +68,17 @@
       <div class="row">
         <button id="demo">load demo</button>
         <button id="clear">clear grid</button>
+      </div>
+      <div class="row">
+        <button id="save-patch">save patch</button>
+        <button id="load-patch-btn">load patch</button>
+        <input id="load-patch" type="file" accept=".json,application/json" style="display:none" />
+      </div>
+      <div class="row">
+        <label>grid</label>
+        <input id="grid-w" type="number" min="8" max="128" value="64" />
+        <label>×</label>
+        <input id="grid-h" type="number" min="8" max="64" value="32" />
       </div>
     </div>
 
@@ -101,9 +114,11 @@
         <b>H</b> hop W→E &nbsp; <b>J</b> jump N→S &nbsp; <b>M</b> multiplex<br/>
         ops read west, write south · <b>!</b> bang · <b>`</b> toggle power<br/>
         digits/lowercase = literals · uppercase = operators<br/>
-        drag / <b>⇧arrows</b> select · type fills selection<br/>
+        drag / <b>⇧arrows</b> select · type fills selection · <b>⌘A</b> all<br/>
         <b>⌘drag</b> wire (repeat to remove) — writes propagate<br/>
         <b>⌘C/X/V</b> copy/cut/paste (cells + wires)<br/>
+        <b>#</b> mute/unmute selection (comment out)<br/>
+        <b>⌥arrows</b> leap ×8 · <b>[ ]</b> zoom · cursor auto-pans<br/>
         <b>⌘↵</b> play/stop · <b>esc</b> collapse selection
       </div>
     </div>

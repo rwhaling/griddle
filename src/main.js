@@ -6,8 +6,10 @@ import { GridUI } from './ui.js';
 import { DEMO } from './demo.js';
 import { charToCell, cellToChar, toB36Char, getType, TYPE } from './values.js';
 
-const GRID_W = 32;
-const GRID_H = 16;
+const GRID_W = 64;
+const GRID_H = 32;
+const MAX_W = 128;
+const MAX_H = 64;
 const STORAGE_KEY = 'griddle-state-v1';
 
 const bank = new PatternBank();
@@ -33,6 +35,10 @@ const statusLine = $('status');
 const panicBtn = $('panic');
 const demoBtn = $('demo');
 const clearBtn = $('clear');
+const gridWInput = $('grid-w');
+const gridHInput = $('grid-h');
+const savePatchBtn = $('save-patch');
+const loadPatchInput = $('load-patch');
 
 const ui = new GridUI(canvas, machine, { onEdit: saveState });
 
@@ -193,38 +199,102 @@ function serializeGrid() {
   return cells;
 }
 
-function saveState() {
-  const state = {
+function buildState() {
+  return {
+    version: 1,
+    size: { w: machine.width, h: machine.height },
     bpm: Number(bpmInput.value) || 120,
     cells: serializeGrid(),
     wires: machine.allWires().map(({ from, to }) => [from.x, from.y, to.x, to.y]),
     slots: bank.slots.map((s) => ({ code: s.code, steps: s.stepsOverride })),
   };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+function applyState(state) {
+  bpmInput.value = state.bpm ?? 120;
+  const w = Math.min(MAX_W, state.size?.w ?? GRID_W);
+  const h = Math.min(MAX_H, state.size?.h ?? GRID_H);
+  clearGrid();
+  if (w !== machine.width || h !== machine.height) machine.resize(w, h);
+  gridWInput.value = machine.width;
+  gridHInput.value = machine.height;
+  for (const [x, y, char, flags] of state.cells) {
+    const cell = charToCell(char);
+    if (cell) machine.grid.set(x, y, { flags: flags ?? cell.flags, letter: cell.letter });
+  }
+  for (const [fx, fy, tx, ty] of state.wires ?? []) {
+    machine.ensureWire({ x: fx, y: fy }, { x: tx, y: ty });
+  }
+  for (let i = 0; i < 36; i++) bank.setSlot(i, '');
+  state.slots?.forEach((s, i) => {
+    if (s.code) bank.setSlot(i, s.code, s.steps ?? null);
+  });
+  showSlot(currentSlot);
+}
+
+function saveState() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(buildState()));
 }
 
 function loadState() {
   const raw = localStorage.getItem(STORAGE_KEY);
   if (!raw) return false;
   try {
-    const state = JSON.parse(raw);
-    bpmInput.value = state.bpm ?? 120;
-    clearGrid();
-    for (const [x, y, char, flags] of state.cells) {
-      const cell = charToCell(char);
-      if (cell) machine.grid.set(x, y, { flags: flags ?? cell.flags, letter: cell.letter });
-    }
-    for (const [fx, fy, tx, ty] of state.wires ?? []) {
-      machine.ensureWire({ x: fx, y: fy }, { x: tx, y: ty });
-    }
-    state.slots?.forEach((s, i) => {
-      if (s.code) bank.setSlot(i, s.code, s.steps ?? null);
-    });
+    applyState(JSON.parse(raw));
     return true;
   } catch {
     return false;
   }
 }
+
+// ---- patch files (export/import survive storage clears, live in git) ----
+function exportPatch() {
+  const blob = new Blob([JSON.stringify(buildState(), null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-');
+  a.download = `griddle-patch-${stamp}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+async function importPatch(file) {
+  try {
+    const state = JSON.parse(await file.text());
+    if (!Array.isArray(state.cells)) throw new Error('not a griddle patch');
+    applyState(state);
+    saveState();
+    statusLine.textContent = `loaded ${file.name}`;
+  } catch (e) {
+    statusLine.textContent = `import failed: ${e.message}`;
+  }
+}
+
+savePatchBtn.addEventListener('click', exportPatch);
+$('load-patch-btn').addEventListener('click', () => loadPatchInput.click());
+loadPatchInput.addEventListener('change', () => {
+  if (loadPatchInput.files[0]) importPatch(loadPatchInput.files[0]);
+  loadPatchInput.value = '';
+});
+
+// ---- grid size ----
+function applyGridSize() {
+  const w = Math.max(8, Math.min(MAX_W, Number(gridWInput.value) || GRID_W));
+  const h = Math.max(8, Math.min(MAX_H, Number(gridHInput.value) || GRID_H));
+  gridWInput.value = w;
+  gridHInput.value = h;
+  if (w !== machine.width || h !== machine.height) {
+    machine.resize(w, h);
+    ui.cursor.x = Math.min(ui.cursor.x, w - 1);
+    ui.cursor.y = Math.min(ui.cursor.y, h - 1);
+    ui.box = { w: 1, h: 1 };
+    ui.clampCamera();
+    saveState();
+  }
+}
+
+gridWInput.addEventListener('change', applyGridSize);
+gridHInput.addEventListener('change', applyGridSize);
 
 function clearGrid() {
   machine.grid.clear();
@@ -267,15 +337,20 @@ bpmInput.addEventListener('change', saveState);
 // ---- render loop ----
 function frame() {
   ui.render();
+  const pos = `${ui.cursor.x},${ui.cursor.y}`;
   statusLine.textContent = playing
-    ? `tick ${machine.metronome}`
-    : statusLine.textContent.startsWith('tick') ? 'stopped' : statusLine.textContent;
+    ? `tick ${machine.metronome} · ${pos}`
+    : /^(tick|stopped)/.test(statusLine.textContent) || statusLine.textContent.includes(',')
+      ? `stopped · ${pos}`
+      : statusLine.textContent;
   requestAnimationFrame(frame);
 }
 
 // ---- boot ----
 initSlotSelect();
 if (!loadState()) loadDemo();
+gridWInput.value = machine.width;
+gridHInput.value = machine.height;
 showSlot(0);
 initMidi();
 frame();

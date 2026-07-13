@@ -1,19 +1,25 @@
-// Canvas grid editor in the Orca/CLAVIER visual idiom.
+// Canvas grid editor in the Orca/CLAVIER visual idiom, with a keyboard-first
+// viewport for grids larger than the window.
 //
-// Interaction model (per CLAVIER src/clavier.c):
+// Interaction model (per CLAVIER src/clavier.c, plus griddle additions):
 //   - plain left-drag: rectangular drag-select; shift+arrows extends selection
 //   - cmd/ctrl + left-drag: draw a wire from press cell to release cell;
 //     wiring the same pair again removes it (toggle)
 //   - typing writes the cell at the cursor (or fills the whole selection);
 //     backspace/delete/'.' clears the selection; '`' toggles operator power
+//   - '#' toggles MUTE across the selection (comment-out; muted operators
+//     don't evaluate, rendered dimmed)
 //   - cmd/ctrl + C / X / V: copy, cut, paste (cells + wires inside selection)
+//   - cmd/ctrl + A: select all
+//   - navigation is a side effect of editing: the camera keeps the cursor in
+//     view, so arrows/typing auto-pan; alt+arrows leap 8 cells; '['/']' zoom
 
-import { TYPE, getType, getPower, charToCell, cellToChar, makeFlags } from './values.js';
+import { TYPE, getType, getPower, getMuted, MUTE_BIT, charToCell, cellToChar, makeFlags } from './values.js';
 import { copyRegion, cutRegion, pasteRegion, regionToText } from './clipboard.js';
 
-const CELL = 26;
 const COLORS = {
   background: '#14151a',
+  outside: '#0e0f12',
   guide: '#26282f',
   none: '#3a3d46',
   literal: '#9aa3b2',
@@ -28,10 +34,16 @@ const COLORS = {
   selectionBorder: 'rgba(255, 255, 255, 0.45)',
   wire: '#5f8fbf',
   wirePreview: '#9fc4e8',
+  gridBorder: '#26282f',
 };
 
 const PATTERN_TAGS = new Set([30, 31]); // U, V
 const MIDI_TAGS = new Set([15, 16, 32, 35]); // F, G, W, Z
+const MUTED_ALPHA = 0.3;
+const LEAP = 8;
+const ZOOM_MIN = 14;
+const ZOOM_MAX = 34;
+const ZOOM_STEP = 4;
 
 export class GridUI {
   constructor(canvas, machine, { onEdit } = {}) {
@@ -43,15 +55,11 @@ export class GridUI {
     this.clipboard = null;
     this.ctx = canvas.getContext('2d');
 
+    this.cell = 26; // px per cell, zoomable
+    this.camera = { x: 0, y: 0 }; // top-left visible cell
+
     // mouse interaction state
     this.drag = null; // {mode: 'select'|'wire', origin: {x,y}, current: {x,y}}
-
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = machine.width * CELL * dpr;
-    canvas.height = machine.height * CELL * dpr;
-    canvas.style.width = `${machine.width * CELL}px`;
-    canvas.style.height = `${machine.height * CELL}px`;
-    this.ctx.scale(dpr, dpr);
 
     // focusable, so clicking the grid reclaims keyboard focus from the
     // sidebar inputs (mousedown preventDefault suppresses the default
@@ -59,16 +67,65 @@ export class GridUI {
     canvas.tabIndex = 0;
     canvas.style.outline = 'none';
 
+    this.resizeCanvas();
+    window.addEventListener('resize', () => this.resizeCanvas());
     canvas.addEventListener('mousedown', (e) => this.onMouseDown(e));
     window.addEventListener('mousemove', (e) => this.onMouseMove(e));
     window.addEventListener('mouseup', (e) => this.onMouseUp(e));
   }
 
+  resizeCanvas() {
+    const parent = this.canvas.parentElement;
+    this.viewW = Math.max(200, parent.clientWidth);
+    this.viewH = Math.max(150, parent.clientHeight);
+    const dpr = window.devicePixelRatio || 1;
+    this.canvas.width = this.viewW * dpr;
+    this.canvas.height = this.viewH * dpr;
+    this.canvas.style.width = `${this.viewW}px`;
+    this.canvas.style.height = `${this.viewH}px`;
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.clampCamera();
+  }
+
+  visibleCols() {
+    return Math.floor(this.viewW / this.cell);
+  }
+
+  visibleRows() {
+    return Math.floor(this.viewH / this.cell);
+  }
+
+  clampCamera() {
+    this.camera.x = Math.max(0, Math.min(this.machine.width - this.visibleCols(), this.camera.x));
+    this.camera.y = Math.max(0, Math.min(this.machine.height - this.visibleRows(), this.camera.y));
+  }
+
+  // keep the cursor in view with a margin — navigation as a side effect
+  ensureVisible() {
+    const cols = this.visibleCols();
+    const rows = this.visibleRows();
+    const margin = 2;
+    const { x, y } = this.cursor;
+    if (x < this.camera.x + margin) this.camera.x = x - margin;
+    if (x > this.camera.x + cols - 1 - margin) this.camera.x = x - cols + 1 + margin;
+    if (y < this.camera.y + margin) this.camera.y = y - margin;
+    if (y > this.camera.y + rows - 1 - margin) this.camera.y = y - rows + 1 + margin;
+    this.clampCamera();
+  }
+
+  setZoom(delta) {
+    this.cell = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, this.cell + delta));
+    this.clampCamera();
+    this.ensureVisible();
+  }
+
   tileAt(e) {
     const rect = this.canvas.getBoundingClientRect();
     return {
-      x: Math.max(0, Math.min(this.machine.width - 1, Math.floor((e.clientX - rect.left) / CELL))),
-      y: Math.max(0, Math.min(this.machine.height - 1, Math.floor((e.clientY - rect.top) / CELL))),
+      x: Math.max(0, Math.min(this.machine.width - 1,
+        this.camera.x + Math.floor((e.clientX - rect.left) / this.cell))),
+      y: Math.max(0, Math.min(this.machine.height - 1,
+        this.camera.y + Math.floor((e.clientY - rect.top) / this.cell))),
     };
   }
 
@@ -114,13 +171,26 @@ export class GridUI {
     this.drag = null;
   }
 
+  forSelection(fn) {
+    const rect = this.selectionRect();
+    for (let dy = 0; dy < rect.h; dy++) {
+      for (let dx = 0; dx < rect.w; dx++) {
+        fn(rect.x + dx, rect.y + dy);
+      }
+    }
+    return rect;
+  }
+
   handleKey(e) {
     const grid = this.machine.grid;
     const meta = e.metaKey || e.ctrlKey;
 
-    // clipboard
-    if (meta && (e.key === 'c' || e.key === 'x' || e.key === 'v')) {
-      if (e.key === 'v') {
+    // clipboard + select all
+    if (meta && (e.key === 'c' || e.key === 'x' || e.key === 'v' || e.key === 'a')) {
+      if (e.key === 'a') {
+        this.cursor = { x: 0, y: 0 };
+        this.box = { w: this.machine.width, h: this.machine.height };
+      } else if (e.key === 'v') {
         if (this.clipboard) {
           pasteRegion(this.machine, this.clipboard, this.cursor);
           this.onEdit?.();
@@ -135,13 +205,15 @@ export class GridUI {
       return;
     }
 
+    const step = e.altKey ? LEAP : 1;
     const move = (dx, dy) => {
-      this.cursor.x = Math.max(0, Math.min(this.machine.width - 1, this.cursor.x + dx));
-      this.cursor.y = Math.max(0, Math.min(this.machine.height - 1, this.cursor.y + dy));
+      this.cursor.x = Math.max(0, Math.min(this.machine.width - 1, this.cursor.x + dx * step));
+      this.cursor.y = Math.max(0, Math.min(this.machine.height - 1, this.cursor.y + dy * step));
+      this.ensureVisible();
     };
     const grow = (dw, dh) => {
-      this.box.w = Math.max(1, Math.min(this.machine.width - this.cursor.x, this.box.w + dw));
-      this.box.h = Math.max(1, Math.min(this.machine.height - this.cursor.y, this.box.h + dh));
+      this.box.w = Math.max(1, Math.min(this.machine.width - this.cursor.x, this.box.w + dw * step));
+      this.box.h = Math.max(1, Math.min(this.machine.height - this.cursor.y, this.box.h + dh * step));
     };
     const collapse = () => {
       this.box = { w: 1, h: 1 };
@@ -158,33 +230,45 @@ export class GridUI {
         e.shiftKey ? grow(1, 0) : (collapse(), move(1, 0)); e.preventDefault(); return;
       case 'Escape':
         collapse(); e.preventDefault(); return;
+      case '[':
+        this.setZoom(-ZOOM_STEP); e.preventDefault(); return;
+      case ']':
+        this.setZoom(ZOOM_STEP); e.preventDefault(); return;
       case 'Backspace':
       case 'Delete':
       case '.': {
-        const rect = this.selectionRect();
-        for (let dy = 0; dy < rect.h; dy++) {
-          for (let dx = 0; dx < rect.w; dx++) {
-            grid.set(rect.x + dx, rect.y + dy, { flags: 0, letter: 0 });
-          }
-        }
+        const rect = this.forSelection((x, y) => grid.set(x, y, { flags: 0, letter: 0 }));
         this.onEdit?.();
         if (e.key === 'Backspace' && rect.w === 1 && rect.h === 1) move(-1, 0);
         e.preventDefault();
         return;
       }
       case '`': {
-        const rect = this.selectionRect();
-        for (let dy = 0; dy < rect.h; dy++) {
-          for (let dx = 0; dx < rect.w; dx++) {
-            const cell = grid.get(rect.x + dx, rect.y + dy);
-            if (getType(cell.flags) === TYPE.OPERATOR) {
-              grid.set(rect.x + dx, rect.y + dy, {
-                flags: cell.flags ^ makeFlags(0, 0, 1),
-                letter: cell.letter,
-              });
-            }
+        this.forSelection((x, y) => {
+          const cell = grid.get(x, y);
+          if (getType(cell.flags) === TYPE.OPERATOR) {
+            grid.set(x, y, { flags: cell.flags ^ makeFlags(0, 0, 1), letter: cell.letter });
           }
-        }
+        });
+        this.onEdit?.();
+        e.preventDefault();
+        return;
+      }
+      case '#': {
+        // mute toggle: if anything in the selection is unmuted, mute all;
+        // otherwise unmute all (deterministic on mixed selections)
+        let anyUnmuted = false;
+        this.forSelection((x, y) => {
+          const cell = grid.get(x, y);
+          if (getType(cell.flags) !== TYPE.NONE && !getMuted(cell.flags)) anyUnmuted = true;
+        });
+        this.forSelection((x, y) => {
+          const cell = grid.get(x, y);
+          if (getType(cell.flags) === TYPE.NONE) return;
+          const muted = getMuted(cell.flags);
+          if (anyUnmuted && !muted) grid.set(x, y, { flags: cell.flags | MUTE_BIT, letter: cell.letter });
+          if (!anyUnmuted && muted) grid.set(x, y, { flags: cell.flags & ~MUTE_BIT, letter: cell.letter });
+        });
         this.onEdit?.();
         e.preventDefault();
         return;
@@ -192,15 +276,10 @@ export class GridUI {
       default:
     }
 
-    if (e.key.length === 1 && !meta) {
+    if (e.key.length === 1 && !meta && !e.altKey) {
       const cell = charToCell(e.key);
       if (cell) {
-        const rect = this.selectionRect();
-        for (let dy = 0; dy < rect.h; dy++) {
-          for (let dx = 0; dx < rect.w; dx++) {
-            grid.set(rect.x + dx, rect.y + dy, cell);
-          }
-        }
+        const rect = this.forSelection((x, y) => grid.set(x, y, cell));
         this.onEdit?.();
         if (rect.w === 1 && rect.h === 1) move(1, 0);
         e.preventDefault();
@@ -208,8 +287,13 @@ export class GridUI {
     }
   }
 
+  toScreen(gx, gy) {
+    return [(gx - this.camera.x) * this.cell, (gy - this.camera.y) * this.cell];
+  }
+
   center(p) {
-    return [p.x * CELL + CELL / 2, p.y * CELL + CELL / 2];
+    const [sx, sy] = this.toScreen(p.x, p.y);
+    return [sx + this.cell / 2, sy + this.cell / 2];
   }
 
   drawWire(from, to, color) {
@@ -234,26 +318,41 @@ export class GridUI {
   }
 
   render() {
-    const { ctx, machine } = this;
+    const { ctx, machine, cell } = this;
     const grid = machine.grid;
+    ctx.fillStyle = COLORS.outside;
+    ctx.fillRect(0, 0, this.viewW, this.viewH);
+
+    // grid extent background + border
+    const [gx0, gy0] = this.toScreen(0, 0);
+    const [gx1, gy1] = this.toScreen(machine.width, machine.height);
     ctx.fillStyle = COLORS.background;
-    ctx.fillRect(0, 0, machine.width * CELL, machine.height * CELL);
+    ctx.fillRect(gx0, gy0, gx1 - gx0, gy1 - gy0);
+    ctx.strokeStyle = COLORS.gridBorder;
+    ctx.strokeRect(gx0 + 0.5, gy0 + 0.5, gx1 - gx0 - 1, gy1 - gy0 - 1);
 
     // selection (under the glyphs)
     const rect = this.selectionRect();
+    const [selX, selY] = this.toScreen(rect.x, rect.y);
     ctx.fillStyle = COLORS.selection;
-    ctx.fillRect(rect.x * CELL, rect.y * CELL, rect.w * CELL, rect.h * CELL);
+    ctx.fillRect(selX, selY, rect.w * cell, rect.h * cell);
 
-    ctx.font = `15px "SF Mono", Menlo, monospace`;
+    ctx.font = `${Math.round(cell * 0.58)}px "SF Mono", Menlo, monospace`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    for (let y = 0; y < machine.height; y++) {
-      for (let x = 0; x < machine.width; x++) {
-        const cell = grid.get(x, y);
-        const type = getType(cell.flags);
-        const cx = x * CELL + CELL / 2;
-        const cy = y * CELL + CELL / 2 + 1;
+    const x0 = this.camera.x;
+    const y0 = this.camera.y;
+    const x1 = Math.min(machine.width, x0 + this.visibleCols() + 1);
+    const y1 = Math.min(machine.height, y0 + this.visibleRows() + 1);
+
+    for (let y = y0; y < y1; y++) {
+      for (let x = x0; x < x1; x++) {
+        const c = grid.get(x, y);
+        const type = getType(c.flags);
+        const [sx, sy] = this.toScreen(x, y);
+        const cx = sx + cell / 2;
+        const cy = sy + cell / 2 + 1;
 
         if (type === TYPE.NONE) {
           const isGuide = x % 4 === 0 && y % 4 === 0;
@@ -262,13 +361,16 @@ export class GridUI {
           continue;
         }
 
-        const char = cellToChar(cell.flags, cell.letter);
+        const muted = getMuted(c.flags);
+        if (muted) ctx.globalAlpha = MUTED_ALPHA;
+
+        const char = cellToChar(c.flags, c.letter);
         if (type === TYPE.OPERATOR) {
           ctx.fillStyle = COLORS.operatorBg;
-          ctx.fillRect(x * CELL + 1, y * CELL + 1, CELL - 2, CELL - 2);
-          if (!getPower(cell.flags)) ctx.fillStyle = COLORS.unpowered;
-          else if (PATTERN_TAGS.has(cell.letter)) ctx.fillStyle = COLORS.pattern;
-          else if (MIDI_TAGS.has(cell.letter)) ctx.fillStyle = COLORS.midi;
+          ctx.fillRect(sx + 1, sy + 1, cell - 2, cell - 2);
+          if (!getPower(c.flags)) ctx.fillStyle = COLORS.unpowered;
+          else if (PATTERN_TAGS.has(c.letter)) ctx.fillStyle = COLORS.pattern;
+          else if (MIDI_TAGS.has(c.letter)) ctx.fillStyle = COLORS.midi;
           else ctx.fillStyle = COLORS.operator;
         } else if (type === TYPE.BANG) {
           ctx.fillStyle = COLORS.bang;
@@ -276,6 +378,7 @@ export class GridUI {
           ctx.fillStyle = COLORS.literal;
         }
         ctx.fillText(char, cx, cy);
+        if (muted) ctx.globalAlpha = 1;
       }
     }
 
@@ -290,17 +393,19 @@ export class GridUI {
       if (origin.x !== current.x || origin.y !== current.y) {
         this.drawWire(origin, current, COLORS.wirePreview);
       }
+      const [ox, oy] = this.toScreen(origin.x, origin.y);
       ctx.strokeStyle = COLORS.wirePreview;
       ctx.lineWidth = 1.5;
-      ctx.strokeRect(origin.x * CELL + 0.5, origin.y * CELL + 0.5, CELL - 1, CELL - 1);
+      ctx.strokeRect(ox + 0.5, oy + 0.5, cell - 1, cell - 1);
     }
 
     // selection border + cursor
     ctx.strokeStyle = COLORS.selectionBorder;
     ctx.lineWidth = 1;
-    ctx.strokeRect(rect.x * CELL + 0.5, rect.y * CELL + 0.5, rect.w * CELL - 1, rect.h * CELL - 1);
+    ctx.strokeRect(selX + 0.5, selY + 0.5, rect.w * cell - 1, rect.h * cell - 1);
+    const [curX, curY] = this.toScreen(this.cursor.x, this.cursor.y);
     ctx.strokeStyle = COLORS.cursor;
     ctx.lineWidth = 1.5;
-    ctx.strokeRect(this.cursor.x * CELL + 0.5, this.cursor.y * CELL + 0.5, CELL - 1, CELL - 1);
+    ctx.strokeRect(curX + 0.5, curY + 0.5, cell - 1, cell - 1);
   }
 }

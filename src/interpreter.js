@@ -14,7 +14,7 @@
 
 import {
   TYPE, DIR_VEC, CARDINALS, RADIX, OCTAVE, SCALE, SCALE_CARDINAL, OP,
-  getType, getVelocity, getPower, makeFlags, setVelocity, IMPLEMENTED_OPS,
+  getType, getVelocity, getPower, getMuted, makeFlags, setVelocity, IMPLEMENTED_OPS,
 } from './values.js';
 import { PCG } from './pcg.js';
 import {
@@ -143,6 +143,24 @@ export class Machine {
     this.wires.clear();
   }
 
+  // grow or shrink the grid, preserving cell contents and any wires whose
+  // endpoints both survive; registers/metronome/opState are untouched
+  resize(width, height) {
+    const old = this.src;
+    const oldWires = this.allWires();
+    this.width = width;
+    this.height = height;
+    this.src = new Buffer(width, height);
+    this.dst = new Buffer(width, height);
+    for (let y = 0; y < Math.min(old.height, height); y++) {
+      for (let x = 0; x < Math.min(old.width, width); x++) {
+        this.src.set(x, y, old.get(x, y));
+      }
+    }
+    this.wires = new Map();
+    for (const { from, to } of oldWires) this.ensureWire(from, to);
+  }
+
   // operator writes propagate through wires, transitively (the analogue of
   // CLAVIER's memory_set_transitive); movement and INTERFERE writes do not
   setTransitive(buffer, x, y, cell, seen = null) {
@@ -205,6 +223,7 @@ export class Machine {
       for (let x = 0; x < this.width; x++) {
         const value = m.get(x, y);
         if (getType(value.flags) !== TYPE.OPERATOR) continue;
+        if (getMuted(value.flags)) continue; // muted = commented out
 
         let bang = false;
         for (const d of CARDINALS) {
@@ -600,6 +619,7 @@ export class Machine {
       for (let x = 0; x < this.width; x++) {
         const value = m.get(x, y);
         if (getType(value.flags) !== TYPE.OPERATOR) continue;
+        if (getMuted(value.flags)) continue;
         if (value.letter !== OP.MIDI && value.letter !== OP.MIDI_CC) continue;
 
         let bang = false;
