@@ -214,6 +214,13 @@ file) or live MIDI input. Keep this boundary legible — it's a feature.
 > WebSocket; F/G segments rendered by line~/live.remote~ — CV-grade, since
 > Live's MIDI map is 7-bit-only) is designed in
 > `griddle-ableton-bridge-design.md` — spike required before building.
+>
+> 2026-07-12: mount document & LFO banks (live-codeable JS via strudel's
+> transpiler; @-sigil device-qualified mounts, 36×36 headroom; F revised to
+> dev/ch/ctrl/slot/mod; shapes = signals/patterns sampled to breakpoints)
+> is designed in `griddle-lfo-mounts-design.md` — LFO-only by user decision;
+> its §9 records the unresolved U/V / pattern-banking / rate-driven-operator
+> tension for a dedicated future pass.
 
 - **Full Strudel expressions in slots** — adds `@strudel/transpiler` (+ acorn,
   escodegen). Mini-notation only for 0.1. Mondo notation (`@strudel/mondo`,
