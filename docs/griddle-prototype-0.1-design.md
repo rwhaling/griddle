@@ -221,6 +221,12 @@ file) or live MIDI input. Keep this boundary legible — it's a feature.
 > is designed in `griddle-lfo-mounts-design.md` — LFO-only by user decision;
 > its §9 records the unresolved U/V / pattern-banking / rate-driven-operator
 > tension for a dedicated future pass.
+>
+> 2026-07-12: pattern mounts & U/V unification (the 2×2: positional/rate ×
+> grid-only/MIDI-face; U/V formally the whole/part projections; active-vs-
+> struck grid-face semantics; backward-compat theorem; `.cycle()` rename)
+> is designed in `griddle-pattern-mounts-design.md` — resolves doc six §9;
+> implement with/after doc six.
 
 - **Full Strudel expressions in slots** — adds `@strudel/transpiler` (+ acorn,
   escodegen). Mini-notation only for 0.1. Mondo notation (`@strudel/mondo`,

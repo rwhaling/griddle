@@ -12,6 +12,14 @@ the pattern bank and U/V, but §9 records that as open — including a genuine
 unresolved design tension — rather than designing it here. The current
 pattern-slot UI is untouched by this doc.
 
+> **Revisions from doc seven (`griddle-pattern-mounts-design.md`, same
+> day):** (1) §9's tension is now RESOLVED — the 2×2 in doc seven §1;
+> patterns join the mount document after all, with U/V unification.
+> (2) **`.rate()` is renamed `.cycle()`** throughout (doc seven §6.1):
+> `.rate("4b")` was a duration masquerading as a rate; read every
+> `.rate(` in this doc's examples as `.cycle(`. The `'rate'` *mod name*
+> keeps its name (it's a multiplier, where rate intuition is correct).
+
 Origin: feedback from the first live performance with griddle (2026-07-12).
 The F operator worked, but its base-36 ports quantize rate to 36 quadratic
 steps and range endpoints to 36 positions — per-composition compromises
