@@ -19,6 +19,11 @@ pattern-slot UI is untouched by this doc.
 > `.rate("4b")` was a duration masquerading as a rate; read every
 > `.rate(` in this doc's examples as `.cycle(`. The `'rate'` *mod name*
 > keeps its name (it's a multiplier, where rate intuition is correct).
+> (3) **F regains min/max override ports** (doc seven §4, user review):
+> this doc's `device(5) ch(4) ctrl(3) slot(2) mod(1)` layout is
+> superseded by `dev(7) ch(6) ctrl(5) min(4) max(3) slot(2) mod(1)` —
+> mount `.range()` is the precise base, port literals coarsely override
+> per-bound, `'depth'`/`'offset'` join the mod-name set.
 
 Origin: feedback from the first live performance with griddle (2026-07-12).
 The F operator worked, but its base-36 ports quantize rate to 36 quadratic

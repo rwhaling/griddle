@@ -116,12 +116,23 @@ Family invariant, stated as law: **slot is always west(2); the hot/drive
 input is always west(1); addressing is west(3)+ with set-and-forget
 furthest.**
 
-| op | west(5) | west(4) | west(3) | west(2) | west(1) | south |
-|---|---|---|---|---|---|---|
-| `V` | — | device | channel | slot | drive | value (active-at-boundary) |
-| `U` | — | device | channel | slot | drive | bang (onsets-in-window) |
-| `F` | device | channel | controller | slot | mod | coarse (+fine SE) |
-| `G` | device | channel | controller | target | rate | coarse (+fine SE) |
+| op | west(7) | west(6) | west(5) | west(4) | west(3) | west(2) | west(1) | south |
+|---|---|---|---|---|---|---|---|---|
+| `V` | | | — | device | channel | slot | drive | value (active-at-boundary) |
+| `U` | | | — | device | channel | slot | drive | bang (onsets-in-window) |
+| `F` | device | channel | controller | min | max | slot | mod | coarse (+fine SE) |
+| `G` | | | device/ch/ctrl at 5/4/3 | | | target | rate | coarse (+fine SE) |
+
+**F's min/max (restored 2026-07-12 after user review — they had moved
+mount-side and lost port-patchability):** range resolves in three layers:
+mount `.range(lo, hi)` (CC floats, the precision layer) ← port overrides
+(optional; empty cell defers to mount, literal overrides that bound at
+×127/35 — the patching layer; min > max inversion works across mixed
+sources) ← mod meanings `'depth'` (width about center) and `'offset'`
+(shift window) on top (the one-knob gesture layer). Note the new F is
+**positionally identical to the implemented F except west(2)/west(1)**
+(rate→slot, offset→mod) — migration of existing F clusters is a
+two-cell edit.
 
 - **drive** = position (bare mount) or mod (`.cycle()` mount). Empty is
   legal in both readings (position 0 / no modulation).
@@ -205,17 +216,80 @@ $c: note("c2 ~ eb2 [g2 c3]").cycle("4b")
 // U@c gates a Z; V@c feeds pitch to grid arithmetic — coherent by definition
 ```
 
-## 7. Migration & UI
+## 7. UI: code defines, menus observe and gesture
 
-- **The pattern-slot tab retires.** Existing slots auto-textualize into
-  the mount document (`$1: "0 3 7 <9 b>"`, steps overrides as
-  `.gsteps(n)`); patch format's `slots` array is superseded by
-  `mountSource` (already introduced in doc six).
-- **Drive-port polysemy mitigation**: the status line (later, hover)
-  shows the resolved mount kind + name for the operator under the cursor
-  — also answers "is this slot even mounted."
-- Doc six's per-statement error markers, last-good retention, and ⌘↵
-  eval apply to `$` mounts identically.
+Organizing rule: **anything declarative moves into the mount document;
+chrome keeps only what enumerates live system state, gestures in real
+time, or displays telemetry.**
+
+Into code (versionable, diffable): patterns, LFOs, `devices()`, and
+optionally `bpm(120)` / `grid(64, 32)` as initializer statements (live
+widgets remain for nudging). Stays chrome, with reasons:
+
+| element | why it can't be code |
+|---|---|
+| MIDI port panel | enumerates runtime state (hot-plug, permissions); its new job is authoring support — read-only list with copy-name buttons |
+| play/stop, BPM nudge, panic | real-time gestures |
+| patch save/load | browser file dialogs |
+| preview synth toggle | routing convenience |
+| status line | telemetry: tick, cursor, **resolved mount under cursor** ("V @ $a · positional · 4 steps") — the drive-port polysemy mitigation |
+| mounts inspector (new) | read-only strip over the mount table: `$a ♪2b`, `@2f sine 4b`, per-line error markers |
+
+Layout: thin toolbar; grid viewport left; **code pane right (CodeMirror
+6**, used directly — not `@strudel/codemirror`, which couples to their
+REPL; diagnostics from transpiler source locations become gutter
+marks**)** with the inspector strip below it; collapsible MIDI panel.
+⌘E toggles the code pane (collapsed = full-width grid for performance);
+Escape in the editor returns focus to the grid.
+
+Keybindings, resolved deliberately: **⌘↵ in the editor = mount/eval**
+(strudel muscle memory); **⌘↵ on the grid = play/stop** (unchanged);
+**⌘. = panic everywhere** (strudel's hush).
+
+The pattern-slot tab retires. Doc six's per-statement error markers,
+last-good retention, and eval gesture apply to `$` mounts identically.
+
+### 7.1 Patch serialization v2
+
+```json
+{
+  "version": 2,
+  "meta": { "name": "…", "modified": "…" },
+  "bpm": 120,
+  "size": { "w": 64, "h": 32 },
+  "rows": ["·cC·18C···", "1·V·0·U···"],
+  "cellFlags": [[6, 3, 99]],
+  "wires": [[4, 4, 6, 4]],
+  "mount": ["devices({ 0: 'IAC Bus 1' })", "", "$a: …"]
+}
+```
+
+Three choices, all serving git-diffability (patches are files; a patch
+diff should read like a patch changed):
+
+1. **`mount` as an array of lines** — a one-line LFO edit diffs as one
+   line, no `\n`-escaping soup.
+2. **Grid as `rows` strings** (the clipboard `regionToText` format) plus
+   a **`cellFlags` sidecar** for exceptions only (unpowered, muted) —
+   the grid is readable in the diff itself.
+3. **Compiled artifacts are never serialized** — the mount source *is*
+   the content serialization; artifacts derive at load by evaluation.
+   (Purity-contract consequence: a doc that rolls dice at eval time
+   re-rolls on load. Documented deal.)
+
+The v1 `slots` array is gone. localStorage stores the same v2 object.
+
+### 7.2 Migration stance (revised 2026-07-12: manual, not automatic)
+
+Exactly one v1 patch exists worth keeping (the first-performance patch),
+so: **no v1 loader, no auto-textualization.** The v2 loader rejects
+`version: 1` with a clear message; the performance patch is migrated by
+hand as the first act of implementation (slots → `$n:` lines
+mechanically; F clusters re-worked per §4's two-cell edit; the old
+export archived in git as the before-state). Distinguish: doc seven §5's
+backward-compat theorem concerns *grid semantics* (U/V reading garbage
+safely) and is unaffected — only *file-format* compatibility is dropped,
+and it had one customer, who prefers migration.
 
 ## 8. Runtime notes
 
