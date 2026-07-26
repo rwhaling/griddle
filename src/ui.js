@@ -185,7 +185,9 @@ export class GridUI {
     const grid = this.machine.grid;
     const meta = e.metaKey || e.ctrlKey;
 
-    // clipboard + select all
+    // clipboard + select all — but if the user has selected page text
+    // (an error message, the mount bar), native copy must win
+    if (meta && e.key === 'c' && !window.getSelection?.().isCollapsed) return;
     if (meta && (e.key === 'c' || e.key === 'x' || e.key === 'v' || e.key === 'a')) {
       if (e.key === 'a') {
         this.cursor = { x: 0, y: 0 };

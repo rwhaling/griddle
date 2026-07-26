@@ -57,7 +57,14 @@
     #mount-bar {
       padding: 6px 10px; border-top: 1px solid #26282f;
       font-size: 12px; color: #8a8f9a; min-height: 30px;
+      user-select: text; cursor: text;
     }
+    #mount-tools {
+      padding: 4px 10px; border-bottom: 1px solid #26282f;
+      display: flex; gap: 8px; align-items: center;
+    }
+    #mount-tools button { padding: 2px 8px; font-size: 11px; }
+    #mount-tools span { font-size: 11px; color: #5a5f6a; }
     #mount-bar .err { color: #e07a7a; }
     #mount-bar .ok { color: #7fd4a8; }
     #mount-bar .ref { color: #7fd4a8; margin-right: 8px; }
@@ -143,6 +150,10 @@
     <canvas id="grid"></canvas>
   </div>
   <div id="mount-pane" class="hidden">
+    <div id="mount-tools">
+      <button id="mount-defaults">insert defaults</button>
+      <span>⌘↵ evaluate · "mini" · 'plain'</span>
+    </div>
     <div id="mount-editor"></div>
     <div id="mount-bar">mounts: none — ⌘↵ to evaluate</div>
   </div>

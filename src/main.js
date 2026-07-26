@@ -62,6 +62,7 @@ const mountEditor = new MountEditor($('mount-editor'), {
 
 function renderMountBar(error) {
   if (error) {
+    console.error('[griddle mount]', error); // copyable from devtools too
     mountBar.innerHTML = `<span class="err">✗ ${error.replace(/</g, '&lt;')}</span>`;
     return;
   }
@@ -72,6 +73,18 @@ function renderMountBar(error) {
       (devs ? ` · ${devs} device${devs > 1 ? 's' : ''}` : '')
     : 'mounts: none — ⌘↵ to evaluate';
 }
+
+$('mount-defaults').addEventListener('click', () => {
+  // replace the whole document with the canonical defaults and evaluate —
+  // the recovery path when pasted/stale content won't parse
+  mountEditor.setSource(DEFAULT_MOUNT_DOC);
+  const result = tryEvaluate(DEFAULT_MOUNT_DOC, mounts);
+  mounts = result.table;
+  machine.mounts = mounts;
+  renderMountBar(result.error);
+  saveState();
+  mountEditor.focus();
+});
 
 function toggleMountPane(show) {
   const hidden = mountPane.classList.contains('hidden');
