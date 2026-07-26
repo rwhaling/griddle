@@ -113,10 +113,15 @@ function toggleMountPane(show) {
   const hidden = mountPane.classList.contains('hidden');
   const next = show ?? hidden;
   mountPane.classList.toggle('hidden', !next);
+  const btn = $('pane-toggle');
+  btn.textContent = next ? '◨ code' : '◧ code';
+  btn.classList.toggle('active', next);
   ui.resizeCanvas();
   if (next) mountEditor.focus();
   else canvas.focus();
 }
+
+$('pane-toggle').addEventListener('click', () => toggleMountPane());
 
 // ---- transport ----
 let playing = false;

@@ -36,6 +36,7 @@
       flex-wrap: nowrap; white-space: nowrap;
     }
     #toolbar .group { display: flex; gap: 6px; align-items: center; }
+    #pane-toggle.active { background: #3a3d46; border-color: #5f8fbf; }
     #toolbar .sep { color: #3a3d46; }
     #toolbar .spacer { flex: 1; }
     #status { color: #8a8f9a; font-size: 12px; }
@@ -123,6 +124,7 @@
     </div>
     <span class="spacer"></span>
     <span id="status">ready</span>
+    <button id="pane-toggle" title="show/hide the mount editor (⌘E)">◧ code</button>
   </div>
 
   <div id="context">·</div>
