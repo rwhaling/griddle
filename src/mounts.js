@@ -42,7 +42,23 @@ export function decodeLabel(label) {
 // ---------------------------------------------------------------------------
 // cycle spec: number = beats; "16t" ticks, "3.5b" beats, "2bar" bars
 // ---------------------------------------------------------------------------
+// forgiveness for strudel muscle memory: a double-quoted "4b" arrives as a
+// mini pattern — unwrap its single value when it looks like a plain token
+const unwrapToken = (x) => {
+  if (!isStrudelPattern(x)) return x;
+  try {
+    const haps = x.queryArc(0, 1);
+    if (haps.length === 1 && (typeof haps[0].value === 'string' || typeof haps[0].value === 'number')) {
+      return haps[0].value;
+    }
+  } catch {
+    /* fall through to the quote-convention error */
+  }
+  return x;
+};
+
 export function cycleTicks(spec) {
+  spec = unwrapToken(spec);
   if (typeof spec === 'number') return spec * TICKS_PER_BEAT;
   if (isStrudelPattern(spec)) {
     throw new Error("cycle spec got a pattern — use single quotes: .cycle('4b') (double quotes are mini-notation)");
@@ -174,6 +190,7 @@ class LfoDef {
   }
 
   mod(name, ...args) {
+    name = unwrapToken(name);
     if (isStrudelPattern(name)) {
       throw new Error("mod name got a pattern — use single quotes: .mod('rate') (double quotes are mini-notation)");
     }
@@ -287,6 +304,7 @@ class PatternDef {
   }
 
   mod(name, ...args) {
+    name = unwrapToken(name);
     if (isStrudelPattern(name)) {
       throw new Error("mod name got a pattern — use single quotes: .mod('rate') (double quotes are mini-notation)");
     }
@@ -486,9 +504,12 @@ export function evaluateMountDoc(source) {
     lfo,
     spread,
     devices: (map) => {
-      Object.assign(table.deviceMap, map);
+      for (const [k, v] of Object.entries(map)) {
+        table.deviceMap[k] = v === null ? null : unwrapToken(v);
+      }
     },
     mount: (ref, def) => {
+      ref = unwrapToken(ref);
       if (typeof ref !== 'string' || !/^[@$][0-9a-z]{1,2}$/.test(ref)) {
         throw new Error(`bad mount ref: ${ref} (use single-quoted '@a' / '$2f')`);
       }
@@ -501,8 +522,16 @@ export function evaluateMountDoc(source) {
       }
     },
     pat,
-    // the mini plugin rewrites double-quoted strings to m(str, ...locations)
-    m: (str) => mini(str),
+    // the mini plugin rewrites double-quoted strings to m(str, ...locations);
+    // strings that aren't valid mini-notation stay plain strings, so
+    // mount("@b", ...) and friends survive strudel-style double quotes
+    m: (str) => {
+      try {
+        return mini(str);
+      } catch {
+        return str;
+      }
+    },
     // strudel shapes + a curated slice of the combinator/control surface
     sine, cosine, saw, isaw, tri, square, perlin, rand,
     noise: 'noise',

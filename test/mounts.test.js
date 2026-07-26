@@ -173,3 +173,20 @@ describe('default mount document', () => {
     expect(table.entries.get('@8').mod.name).toBe('rate'); // fine-freq mod
   });
 });
+
+describe('double-quote forgiveness (strudel muscle memory)', () => {
+  it('simple double-quoted specs unwrap: .cycle("4b"), .mod("rate"), mount("@a")', () => {
+    const table = evaluateMountDoc(`
+      @a: lfo(tri).cycle("4b").mod("rate", 0.5, 2)
+      mount("@b", lfo(saw).cycle("16t"))
+    `);
+    expect(table.entries.get('@a').cycleTicks).toBe(16);
+    expect(table.entries.get('@a').mod.name).toBe('rate');
+    expect(table.entries.get('@b').cycleTicks).toBe(16);
+  });
+
+  it('string METHODS on double-quoted strings still fail (patterns have no .split)', () => {
+    const { error } = tryEvaluate(`"abc".split("").forEach((c) => mount('@' + c, lfo(tri)))`, null);
+    expect(error).toMatch(/split is not a function/);
+  });
+});
