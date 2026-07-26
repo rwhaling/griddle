@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>griddle</title>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      margin: 0;
+      background: #0e0f12;
+      color: #c8cdd6;
+      font-family: "SF Mono", Menlo, monospace;
+      font-size: 13px;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    button {
+      background: #2c2e36; color: #e8e3d0; border: 1px solid #3a3d46;
+      padding: 4px 10px; font: inherit; font-size: 12px; cursor: pointer; border-radius: 3px;
+    }
+    button:hover { background: #3a3d46; }
+    input, select {
+      background: #1a1c21; color: #c8cdd6; border: 1px solid #3a3d46;
+      font: inherit; font-size: 12px; padding: 3px 6px; border-radius: 3px;
+    }
+    input[type="number"] { width: 54px; }
+    label { color: #8a8f9a; font-size: 12px; }
+
+    /* ---- toolbar + context line ---- */
+    #toolbar {
+      display: flex; gap: 8px; align-items: center;
+      padding: 6px 10px; border-bottom: 1px solid #26282f; background: #14151a;
+      flex-wrap: nowrap; white-space: nowrap;
+    }
+    #toolbar .group { display: flex; gap: 6px; align-items: center; }
+    #pane-toggle.active { background: #3a3d46; border-color: #5f8fbf; }
+    #toolbar .sep { color: #3a3d46; }
+    #toolbar .spacer { flex: 1; }
+    #status { color: #8a8f9a; font-size: 12px; }
+    #context {
+      padding: 3px 10px; border-bottom: 1px solid #26282f; background: #101116;
+      font-size: 12px; color: #9aa3b2; min-height: 20px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      user-select: text;
+    }
+    #context .op { color: #e8e3d0; }
+    #context .mount { color: #7fd4a8; }
+
+    /* ---- workspace: grid + right pane (layout-right today; other
+       layouts later are a flex-direction away) ---- */
+    #workspace { flex: 1; display: flex; overflow: hidden; }
+    #workspace.layout-right { flex-direction: row; }
+    #main { flex: 1; overflow: hidden; }
+    #grid { display: block; image-rendering: auto; }
+
+    #mount-pane {
+      width: 380px; display: flex; flex-direction: column;
+      border-left: 1px solid #26282f; background: #14151a;
+    }
+    #mount-pane.hidden { display: none; }
+    #mount-tools {
+      padding: 4px 10px; border-bottom: 1px solid #26282f;
+      display: flex; gap: 8px; align-items: center;
+    }
+    #mount-tools button { padding: 2px 8px; font-size: 11px; }
+    #mount-tools .tab { background: transparent; border-color: transparent; color: #8a8f9a; }
+    #mount-tools .tab.active { color: #e8e3d0; border-color: #3a3d46; background: #2c2e36; }
+    #mount-tools span { font-size: 11px; color: #5a5f6a; margin-left: auto; }
+    #mount-editor { flex: 1; overflow: auto; }
+    #ref-view {
+      flex: 1; overflow-y: auto; padding: 10px 12px; display: none;
+      font-size: 12px; line-height: 1.7; color: #8a8f9a;
+    }
+    #ref-view b { color: #c8cdd6; font-weight: normal; }
+    #ref-view h3 { font-size: 12px; color: #e8e3d0; margin: 12px 0 4px; }
+    #mount-pane.show-ref #mount-editor { display: none; }
+    #mount-pane.show-ref #ref-view { display: block; }
+    #mount-bar {
+      padding: 6px 10px; border-top: 1px solid #26282f;
+      font-size: 12px; color: #8a8f9a; min-height: 30px;
+      user-select: text; cursor: text;
+    }
+    #mount-bar .err { color: #e07a7a; }
+    #mount-bar .ok { color: #7fd4a8; }
+    #mount-bar .dirty { color: #e8c86a; }
+    #mount-pane.dirty #mount-editor { box-shadow: inset 3px 0 0 #e8c86a; }
+    .eval-flash { animation: evalflash 220ms ease-out; }
+    @keyframes evalflash {
+      from { box-shadow: inset 0 0 0 3px #7fd4a8; }
+      to { box-shadow: inset 0 0 0 0 rgba(127, 212, 168, 0); }
+    }
+
+    /* ---- collapsible midi strip ---- */
+    #midi-strip {
+      display: flex; gap: 10px; align-items: center;
+      padding: 5px 10px; border-top: 1px solid #26282f; background: #14151a;
+      font-size: 12px;
+    }
+    #midi-strip.collapsed #midi-detail { display: none; }
+    #midi-detail { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    #midi-ports { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+    #midi-ports .port { color: #8a8f9a; }
+    #midi-ports button { padding: 1px 6px; font-size: 10px; }
+  </style>
+  <script type="module" crossorigin src="./assets/index-DlVpH9BE.js"></script>
+</head>
+<body>
+  <div id="toolbar">
+    <div class="group">
+      <button id="play">▶ play</button>
+      <label>bpm</label><input id="bpm" type="number" min="20" max="300" value="120" />
+      <label>grid</label><input id="grid-w" type="number" min="8" max="128" value="64" /><label>×</label><input id="grid-h" type="number" min="8" max="64" value="32" />
+      <button id="panic" title="all notes off (⌘.)">panic</button>
+    </div>
+    <span class="sep">│</span>
+    <div class="group">
+      <button id="save-patch">save</button>
+      <button id="load-patch-btn">load</button>
+      <input id="load-patch" type="file" accept=".json,application/json" style="display:none" />
+      <button id="demo">demo</button>
+      <button id="clear">clear</button>
+    </div>
+    <span class="spacer"></span>
+    <span id="status">ready</span>
+    <button id="pane-toggle" title="show/hide the mount editor (⌘E)">◧ code</button>
+  </div>
+
+  <div id="context">·</div>
+
+  <div id="workspace" class="layout-right">
+    <div id="main">
+      <canvas id="grid"></canvas>
+    </div>
+    <div id="mount-pane" class="hidden">
+      <div id="mount-tools">
+        <button class="tab active" id="tab-code">code</button>
+        <button class="tab" id="tab-ref">ref</button>
+        <button id="mount-defaults">insert defaults</button>
+        <span>⌘↵ eval · "mini" · 'plain'</span>
+      </div>
+      <div id="mount-editor"></div>
+      <div id="ref-view">
+        <h3>operators — read west, write south</h3>
+        <b>U</b> dev,ch,slot,drive → bang / note triggers<br/>
+        <b>V</b> dev,ch,slot,drive → value / pitched notes<br/>
+        <b>F</b> dev,ch,ctrl,min,max,slot,mod → mounted lfo<br/>
+        <b>G</b> dev,ch,ctrl,tgt,rate → glide (smooth cc)<br/>
+        <b>Z</b> dev,ch,vel,hold,oct,pitch → midi note (bang-fired)<br/>
+        <b>W</b> dev,ch,ctrl,val → midi cc (bang-fired)<br/>
+        <b>C</b> rate,mod clock · <b>P</b> pendulum · <b>R</b> random<br/>
+        <b>N</b> major scale · <b>E</b> envelope · <b>L/S</b> load/store<br/>
+        <b>+−*/%</b> arith · <b>=&gt;&lt;&amp;|</b> compare/logic<br/>
+        <b>H</b> hop W→E · <b>J</b> jump N→S · <b>M</b> multiplex · <b>Q</b> quote<br/>
+        <b>I</b> interfere (launch moving values)<br/>
+        <h3>cells</h3>
+        digits/lowercase = literals 0–z · uppercase/symbols = operators<br/>
+        <b>!</b> bang · <b>`</b> toggle power · <b>#</b> mute selection<br/>
+        <h3>editing</h3>
+        drag / <b>⇧arrows</b> select · type fills selection · <b>⌘A</b> all<br/>
+        <b>⌘drag</b> wire (repeat removes) · <b>⌘C/X/V</b> copy/cut/paste<br/>
+        <b>⌥arrows</b> leap ×8 · <b>[ ]</b> zoom · cursor auto-pans<br/>
+        <h3>mounts (⌘E)</h3>
+        <b>@a</b> lfo · <b>$a</b> pattern · <b>@2a</b> device-qualified<br/>
+        lfo(shape).cycle('4b').range(40,90).phase(p).mod('rate')<br/>
+        pat("x(5,8)").gsteps(8) · .cycle('2b') = rate-driven<br/>
+        bpm(120) · grid(64,32) · devices({0:'IAC', 3:null})<br/>
+        double quotes = mini-notation · single = plain strings<br/>
+        <h3>transport</h3>
+        <b>⌘↵</b> grid: play/stop · editor: evaluate · <b>⌘.</b> panic<br/>
+        <b>⌘E</b> toggle this pane · <b>esc</b> editor → grid
+      </div>
+      <div id="mount-bar">mounts: none — ⌘↵ to evaluate</div>
+    </div>
+  </div>
+
+  <div id="midi-strip" class="collapsed">
+    <button id="midi-toggle">midi ▸</button>
+    <select id="midi-out"></select>
+    <label><input id="preview" type="checkbox" /> preview</label>
+    <div id="midi-detail">
+      <span id="midi-ports"></span>
+    </div>
+  </div>
+
+</body>
+</html>
