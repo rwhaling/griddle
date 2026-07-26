@@ -22,6 +22,10 @@ import {
   tablePieces, tableValue, noisePieces, warpTable, scalePieces,
   valueToInternal, intHash, NOISE_STEPS,
 } from './modulation.js';
+import {
+  positionalWindow, sweepWindow, coercePatternValue, noteFromValue, velocityFromValue,
+  isFalsyValue,
+} from './mounts.js';
 
 const NONE = { flags: 0, letter: 0 };
 const BANG = { flags: makeFlags(TYPE.BANG), letter: 0 };
@@ -89,6 +93,9 @@ export class Machine {
     // sub-tick CC events emitted by F/G this step: {device, channel,
     // controller, value7, frac} with frac in [0,1) of the tick window
     this.ccEvents = [];
+    // sub-tick note events from mounted U/V MIDI faces: {device, channel,
+    // note, velocity, frac, durTicks}
+    this.noteEvents = [];
   }
 
   // the latest completed state; the editor reads and writes this
@@ -183,6 +190,7 @@ export class Machine {
     this.registers = Array.from({ length: RADIX }, () => ({ ...NONE }));
     this.opState.clear();
     this.ccEvents = [];
+    this.noteEvents = [];
   }
 
   step() {
@@ -218,6 +226,7 @@ export class Machine {
 
     // ---- phase 2: evaluation (reading order, in place on dst) ----
     this.ccEvents = [];
+    this.noteEvents = [];
     this.touchedOps = new Set();
     const m = dst;
     for (let y = 0; y < this.height; y++) {
@@ -640,29 +649,116 @@ export class Machine {
         write(1, 1, lit(face % 36));
         break;
       }
-      case OP.PATTERN_BANG: {
-        // U: pure function of (slot, position); always writes (bang-producer
-        // convention), so a missed step clears last tick's bang
-        const slot = read(2, 0);
-        const pos = readLiteral(read(1, 0), 0);
-        let out = NONE;
-        if (getType(slot.flags) === TYPE.LITERAL && this.patterns?.bang(slot.letter, pos)) {
-          out = BANG;
-        }
-        write(0, 1, out);
-        break;
-      }
+      case OP.PATTERN_BANG:
       case OP.PATTERN_VALUE: {
-        // V: earliest onset's value in the position window, coerced to base-36;
-        // continuous signals sample-and-hold; rests write NONE (no hidden state)
-        const slot = read(2, 0);
-        const pos = readLiteral(read(1, 0), 0);
-        let out = NONE;
-        if (getType(slot.flags) === TYPE.LITERAL && this.patterns) {
-          const v = this.patterns.value(slot.letter, pos);
-          if (v !== null && v !== undefined) out = lit(v);
+        // U/V, doc seven: the two projections of one mount. Ports dev(4)
+        // ch(3) slot(2) drive(1). The mount decides the time model: bare
+        // mount = positional (drive = position, legacy semantics); .cycle()
+        // mount = rate-driven (drive = mod, phase accumulator). MIDI face is
+        // opt-in by channel-cell literal; U emits fixed .note() triggers, V
+        // emits pitched notes with durations from whole spans.
+        const isV = tag === OP.PATTERN_VALUE;
+        const slotCell = read(2, 0);
+        const driveCell = read(1, 0);
+        let art = null;
+        let device = 0;
+        if (getType(slotCell.flags) === TYPE.LITERAL && this.mounts) {
+          device = readLiteral(read(4, 0), 0);
+          art = this.mounts.lookup('$', device, slotCell.letter);
         }
-        write(0, 1, out);
+
+        if (!art || art.kind !== 'pattern') {
+          // legacy slot-panel path, byte-identical to the pre-mount U/V
+          const pos = readLiteral(driveCell, 0);
+          let out = NONE;
+          if (getType(slotCell.flags) === TYPE.LITERAL && this.patterns) {
+            if (isV) {
+              const v = this.patterns.value(slotCell.letter, pos);
+              if (v !== null && v !== undefined) out = lit(v);
+            } else if (this.patterns.bang(slotCell.letter, pos)) {
+              out = BANG;
+            }
+          }
+          write(0, 1, out);
+          break;
+        }
+
+        const key = `${x},${y}`;
+        this.touchedOps.add(key);
+        let st = this.opState.get(key);
+        if (!st || st.tag !== tag) {
+          st = { tag, phase: 0 };
+          this.opState.set(key, st);
+        }
+
+        let win;
+        let ticksPerCycle;
+        let modVal = null;
+        if (art.cycleTicks === null) {
+          // positional: drive = position, legacy window semantics
+          const pos = getType(driveCell.flags) === TYPE.LITERAL ? driveCell.letter : 0;
+          win = positionalWindow(art, pos);
+          ticksPerCycle = art.steps ?? 36;
+        } else {
+          // rate-driven: drive = mod (meaning declared by the mount)
+          modVal = getType(driveCell.flags) === TYPE.LITERAL ? driveCell.letter : null;
+          const modIs = (name) => art.mod?.name === name && modVal !== null;
+          let inc = 1 / art.cycleTicks;
+          if (modIs('rate')) {
+            const [rlo = 0.5, rhi = 2] = art.mod.args;
+            inc *= rlo * (rhi / rlo) ** (modVal / 35);
+          }
+          if (bang && !art.sync) st.phase = 0;
+          const phaseOff = modIs('phase') ? modVal / 36 : 0;
+          // phase is UNBOUNDED absolute pattern time: alternations and
+          // long-form structure keep unfolding (doc seven §1) — no wrapping
+          const a = (art.sync ? this.metronome * inc : st.phase) + phaseOff;
+          win = sweepWindow(art, a, inc);
+          if (!art.sync) st.phase += inc;
+          ticksPerCycle = art.cycleTicks;
+        }
+
+        // grid face: U = struck (onsets in window), V = sounding
+        if (isV) {
+          const c = win.activeVal !== null ? coercePatternValue(win.activeVal) : null;
+          write(0, 1, c === null ? NONE : lit(c));
+        } else {
+          write(0, 1, win.bang ? BANG : NONE);
+        }
+
+        // MIDI face: channel-cell literal gates; black-hole device silences
+        const chCell = read(3, 0);
+        if (
+          getType(chCell.flags) === TYPE.LITERAL &&
+          this.mounts.deviceMap?.[device] !== null &&
+          win.onsets.length
+        ) {
+          const modIs = (name) => art.mod?.name === name && modVal !== null;
+          for (const onset of win.onsets) {
+            if (!isV && isFalsyValue(onset.value)) continue; // 'f'/0 don't trigger
+            if (modIs('degrade')) {
+              // deterministic per-onset drop: hash the onset's absolute time
+              const h = intHash(Math.round((this.metronome + onset.frac) * 46656));
+              if (h < modVal / 35) continue;
+            }
+            let note = isV ? noteFromValue(onset.value, art) : art.note;
+            if (note === null || note === undefined) continue;
+            if (modIs('transpose')) {
+              const [tlo = -12, thi = 12] = art.mod.args;
+              note += Math.round(tlo + ((thi - tlo) * modVal) / 35);
+            }
+            let velocity = velocityFromValue(onset.value, art);
+            if (modIs('velocity')) velocity = Math.round((velocity * modVal) / 35);
+            this.noteEvents.push({
+              device,
+              channel: chCell.letter,
+              note: Math.max(0, Math.min(127, note)),
+              velocity: Math.max(1, Math.min(127, velocity)),
+              frac: onset.frac,
+              durTicks: Math.max(onset.durCycles * ticksPerCycle, 0.1),
+            });
+          }
+        }
         break;
       }
       // Z and W are scanned post-step (see scanMidi), not evaluated here

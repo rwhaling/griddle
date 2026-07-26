@@ -48,7 +48,7 @@ describe('mute flag', () => {
   it('muted F emits no CC; unmute re-announces (state was swept)', async () => {
     const { evaluateMountDoc } = await import('../src/mounts.js');
     const m = new Machine(12, 8, null);
-    m.mounts = evaluateMountDoc('@a: lfo(tri).cycle("4t")');
+    m.mounts = evaluateMountDoc("@a: lfo(tri).cycle('4t')");
     place(m, 3, 1, '7'); // controller west(5) of F at (8,1)
     place(m, 6, 1, 'a'); // slot west(2)
     place(m, 8, 1, 'F');

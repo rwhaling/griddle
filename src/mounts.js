@@ -7,11 +7,15 @@
 // runtime invariant is (grid, mounted artifacts, tick) -> identical output.
 
 import { transpiler } from '@strudel/transpiler';
+import '@strudel/transpiler/plugin-mini.mjs'; // side effect: "..." -> m(...) (mini)
 import { mini } from '@strudel/mini';
-import { sine, cosine, saw, isaw, tri, square, perlin, rand } from '@strudel/core';
+import * as strudel from '@strudel/core';
 import { TICKS_PER_BEAT } from './clock.js';
 
+const { Pattern, Fraction, sine, cosine, saw, isaw, tri, square, perlin, rand } = strudel;
+
 const RADIX = 36;
+const isStrudelPattern = (x) => x && typeof x === 'object' && typeof x.queryArc === 'function';
 
 // ---------------------------------------------------------------------------
 // sigil pre-pass: `@a:` / `@2f:` at statement start -> legal JS label.
@@ -40,8 +44,11 @@ export function decodeLabel(label) {
 // ---------------------------------------------------------------------------
 export function cycleTicks(spec) {
   if (typeof spec === 'number') return spec * TICKS_PER_BEAT;
+  if (isStrudelPattern(spec)) {
+    throw new Error("cycle spec got a pattern — use single quotes: .cycle('4b') (double quotes are mini-notation)");
+  }
   const m = /^\s*([\d.]+)\s*(t|b|bar)\s*$/.exec(String(spec));
-  if (!m) throw new Error(`bad cycle spec: ${JSON.stringify(spec)} (use 16t / 3.5b / 2bar)`);
+  if (!m) throw new Error(`bad cycle spec: ${JSON.stringify(spec)} (use '16t' / '3.5b' / '2bar')`);
   const n = parseFloat(m[1]);
   return m[2] === 't' ? n : m[2] === 'b' ? n * TICKS_PER_BEAT : n * 4 * TICKS_PER_BEAT;
 }
@@ -68,7 +75,11 @@ function isPattern(x) {
   return x && typeof x === 'object' && typeof x.queryArc === 'function';
 }
 
+// signals are shared objects (36 mounts of lfo(tri) sample tri once)
+const signalTableCache = new WeakMap();
+
 function sampleSignal(pat) {
+  if (signalTableCache.has(pat)) return signalTableCache.get(pat);
   const table = [];
   for (let k = 0; k <= SIGNAL_SAMPLES; k++) {
     const p = k / SIGNAL_SAMPLES;
@@ -77,6 +88,7 @@ function sampleSignal(pat) {
     const v = haps.length ? Number(haps[0].value) : 0;
     table.push([p, Math.max(0, Math.min(1, v))]);
   }
+  signalTableCache.set(pat, table);
   return table;
 }
 
@@ -162,6 +174,9 @@ class LfoDef {
   }
 
   mod(name, ...args) {
+    if (isStrudelPattern(name)) {
+      throw new Error("mod name got a pattern — use single quotes: .mod('rate') (double quotes are mini-notation)");
+    }
     if (!MOD_NAMES.has(name)) throw new Error(`unknown mod: ${name}`);
     const d = this._clone();
     d._mod = { name, args };
@@ -203,6 +218,233 @@ class LfoDef {
 }
 
 export const lfo = (shape) => new LfoDef(shape);
+
+// ---------------------------------------------------------------------------
+// pattern mounts ($) — doc seven: the mount decides the time model. Bare
+// mount = positional (drive port = position); .cycle() = rate-driven (drive
+// port = mod). U/V are the whole/part projections of one mount.
+// ---------------------------------------------------------------------------
+const PATTERN_MODS = new Set(['rate', 'phase', 'transpose', 'degrade', 'velocity']);
+
+class PatternDef {
+  constructor(pattern) {
+    this._pattern = typeof pattern === 'string' ? mini(pattern) : pattern;
+    if (!isStrudelPattern(this._pattern)) throw new Error('pat() needs a pattern or mini-string');
+    this._cycle = null;
+    this._gsteps = null;
+    this._base = 48;
+    this._vel = 96;
+    this._note = null;
+    this._mod = null;
+    this._sync = false;
+  }
+
+  _clone() {
+    return Object.assign(Object.create(PatternDef.prototype), this);
+  }
+
+  cycle(spec) {
+    const d = this._clone();
+    cycleTicks(spec); // validate at mount time
+    d._cycle = spec;
+    return d;
+  }
+
+  gsteps(n) {
+    const d = this._clone();
+    d._gsteps = Math.max(1, Math.round(n));
+    return d;
+  }
+
+  base(n) {
+    const d = this._clone();
+    d._base = Math.round(n);
+    return d;
+  }
+
+  oct(n) {
+    const d = this._clone();
+    d._base = Math.round(n) * 12;
+    return d;
+  }
+
+  vel(v) {
+    const d = this._clone();
+    d._vel = Math.max(0, Math.min(127, Math.round(v)));
+    return d;
+  }
+
+  note(n) {
+    const d = this._clone();
+    d._note = Math.max(0, Math.min(127, Math.round(n)));
+    return d;
+  }
+
+  sync() {
+    const d = this._clone();
+    d._sync = true;
+    return d;
+  }
+
+  mod(name, ...args) {
+    if (isStrudelPattern(name)) {
+      throw new Error("mod name got a pattern — use single quotes: .mod('rate') (double quotes are mini-notation)");
+    }
+    if (!PATTERN_MODS.has(name)) throw new Error(`unknown pattern mod: ${name}`);
+    const d = this._clone();
+    d._mod = { name, args };
+    return d;
+  }
+
+  p(label) {
+    const decoded = decodeLabel(label);
+    if (!decoded) throw new Error(`pattern mounted with bad label: ${label}`);
+    if (decoded.sigil !== '$') throw new Error(`patterns must mount with $, got ${decoded.sigil}${decoded.ref}`);
+    activeCollector().add('$' + decoded.ref, this.compile());
+    return this;
+  }
+
+  compile() {
+    const auto = Number(this._pattern._steps);
+    return {
+      kind: 'pattern',
+      pattern: this._pattern,
+      steps: this._gsteps ?? (Number.isFinite(auto) && auto >= 1 ? Math.round(auto) : null),
+      cycleTicks: this._cycle !== null ? cycleTicks(this._cycle) : null,
+      base: this._base,
+      vel: this._vel,
+      note: this._note,
+      mod: this._mod,
+      sync: this._sync,
+    };
+  }
+}
+
+export const pat = (p) => new PatternDef(p);
+
+// Pattern.prototype extensions — ONLY names verified free of strudel claims
+// (note/vel/oct/sync collide with strudel controls, so they live on the
+// wrapper: start a griddle chain with cycle/gsteps/base/mod or pat()).
+for (const name of ['cycle', 'gsteps', 'base', 'mod']) {
+  try {
+    Object.defineProperty(Pattern.prototype, name, {
+      value: function (...args) {
+        return new PatternDef(this)[name](...args);
+      },
+      writable: true,
+      configurable: true,
+    });
+  } catch {
+    // name not overridable in this strudel version: reachable via pat()
+  }
+}
+// labels route raw patterns into $ mounts (overrides strudel's repl .p)
+Pattern.prototype.p = function (label) {
+  return new PatternDef(this).p(label);
+};
+
+// ---------------------------------------------------------------------------
+// query-time helpers for U/V (pure; consumed by the interpreter)
+// ---------------------------------------------------------------------------
+const FALSY = new Set([false, 0, 'f', 'false', '~', '']);
+export const isFalsyValue = (v) => FALSY.has(v);
+
+export const coercePatternValue = (v) => {
+  if (typeof v === 'number' && Number.isFinite(v)) return ((Math.round(v) % RADIX) + RADIX) % RADIX;
+  if (typeof v === 'string') {
+    if (/^[0-9a-zA-Z]$/.test(v)) {
+      const n = parseInt(v.toLowerCase(), 36);
+      return n < RADIX ? n : null;
+    }
+    const n = Number(v);
+    if (Number.isFinite(n)) return ((Math.round(n) % RADIX) + RADIX) % RADIX;
+  }
+  if (v && typeof v === 'object' && v.note != null) return coercePatternValue(Number(v.note) % RADIX);
+  return null;
+};
+
+// positional window (quadrant ①/②): Fraction-exact [p/S, (p+1)/S) — same
+// semantics as the legacy PatternBank, plus onset list for the MIDI face
+export function positionalWindow(art, pos) {
+  const S = art.steps ?? 36;
+  let haps;
+  try {
+    haps = art.pattern.queryArc(Fraction(pos).div(S), Fraction(pos + 1).div(S));
+  } catch {
+    return { onsets: [], activeVal: null, bang: false };
+  }
+  const onsetHaps = haps
+    .filter((h) => h.hasOnset())
+    .sort((a, b) => a.part.begin.valueOf() - b.part.begin.valueOf());
+  const a = pos / S;
+  const w = 1 / S;
+  const onsets = onsetHaps.map((h) => ({
+    value: h.value,
+    frac: (h.part.begin.valueOf() - a) / w,
+    durCycles: h.whole ? h.whole.end.valueOf() - h.whole.begin.valueOf() : 0,
+  }));
+  let activeVal = null;
+  if (onsetHaps.length) activeVal = onsetHaps[0].value;
+  else {
+    const continuous = haps.find((h) => h.whole === undefined);
+    if (continuous && typeof continuous.value === 'number') {
+      activeVal = Math.max(0, Math.min(RADIX - 1, Math.floor(continuous.value * RADIX)));
+    }
+  }
+  const bang = onsetHaps.some((h) => !FALSY.has(h.value));
+  return { onsets, activeVal, bang };
+}
+
+// rate-driven sweep (quadrant ③/④): floats; V face = active at end boundary
+export function sweepWindow(art, a, inc) {
+  const b = a + inc;
+  let haps;
+  try {
+    haps = art.pattern.queryArc(a, b);
+  } catch {
+    return { onsets: [], activeVal: null, bang: false };
+  }
+  const eps = 1e-9;
+  const onsetHaps = haps
+    .filter((h) => h.hasOnset())
+    .sort((x, y) => x.part.begin.valueOf() - y.part.begin.valueOf());
+  const onsets = onsetHaps.map((h) => ({
+    value: h.value,
+    frac: Math.max(0, Math.min(1, (h.part.begin.valueOf() - a) / inc)),
+    durCycles: h.whole ? h.whole.end.valueOf() - h.whole.begin.valueOf() : 0,
+  }));
+  // active-at-boundary: the most recent hap whose whole spans the end
+  let activeVal = null;
+  let bestBegin = -Infinity;
+  for (const h of haps) {
+    if (!h.whole) continue;
+    const wb = h.whole.begin.valueOf();
+    const we = h.whole.end.valueOf();
+    if (wb <= b - eps && we > b - eps && wb > bestBegin) {
+      bestBegin = wb;
+      activeVal = h.value;
+    }
+  }
+  const bang = onsetHaps.some((h) => !FALSY.has(h.value));
+  return { onsets, activeVal, bang };
+}
+
+// MIDI-face pitch resolution: control objects pass through, numbers add base
+export function noteFromValue(value, art) {
+  if (value && typeof value === 'object' && value.note != null) {
+    const n = typeof value.note === 'number' ? value.note : strudel.noteToMidi?.(value.note);
+    return Number.isFinite(n) ? Math.round(n) : null;
+  }
+  const n = coercePatternValue(value);
+  return n === null ? null : art.base + n;
+}
+
+export function velocityFromValue(value, art) {
+  if (value && typeof value === 'object' && value.velocity != null) {
+    return Math.max(1, Math.min(127, Math.round(value.velocity * 127)));
+  }
+  return art.vel;
+}
 
 // ---------------------------------------------------------------------------
 // mount table: device-qualified lookup, specific ?? global
@@ -247,18 +489,29 @@ export function evaluateMountDoc(source) {
       Object.assign(table.deviceMap, map);
     },
     mount: (ref, def) => {
-      if (!/^[@$][0-9a-z]{1,2}$/.test(ref)) throw new Error(`bad mount ref: ${ref}`);
+      if (typeof ref !== 'string' || !/^[@$][0-9a-z]{1,2}$/.test(ref)) {
+        throw new Error(`bad mount ref: ${ref} (use single-quoted '@a' / '$2f')`);
+      }
       if (ref[0] === '@') {
         if (!(def instanceof LfoDef)) throw new Error(`${ref}: @ mounts take lfo(...) definitions`);
         table.entries.set(ref, def.compile());
       } else {
-        throw new Error(`$ pattern mounts not yet implemented (doc seven, phase 3)`);
+        const pd = def instanceof PatternDef ? def : new PatternDef(def);
+        table.entries.set(ref, pd.compile());
       }
     },
-    // strudel shapes
+    pat,
+    // the mini plugin rewrites double-quoted strings to m(str, ...locations)
+    m: (str) => mini(str),
+    // strudel shapes + a curated slice of the combinator/control surface
     sine, cosine, saw, isaw, tri, square, perlin, rand,
     noise: 'noise',
     mini,
+    ...Object.fromEntries(
+      ['cat', 'stack', 'seq', 'sequence', 'fastcat', 'slowcat', 'silence', 'note', 'n', 'run', 'irand', 'choose']
+        .filter((k) => strudel[k] !== undefined)
+        .map((k) => [k, strudel[k]]),
+    ),
   };
 
   const local = {
@@ -266,9 +519,6 @@ export function evaluateMountDoc(source) {
   };
 
   const pre = prepass(source);
-  if (/\$__dollar_/.test(pre)) {
-    throw new Error('$ pattern mounts not yet implemented (doc seven, phase 3) — patterns still live in the slot panel');
-  }
   const { output } = transpiler(pre, { wrapAsync: false, addReturn: false, emitMiniLocations: false });
 
   collector = local;
@@ -286,14 +536,31 @@ export function evaluateMountDoc(source) {
 // pre-mount quadratic curve (period 4·r² ticks; slot 0 = slowest, per
 // CLAVIER's map_zero convention). Later statements override earlier ones, so
 // per-slot customizations go below the loop. Defaults are code, not magic.
-export const DEFAULT_MOUNT_DOC = `// griddle mounts — edit freely, ⌘↵ to apply (later lines override earlier)
-// slot glyph = coarse rate knob: period 4·r² ticks (slot 0 = slowest)
-"0123456789abcdefghijklmnopqrstuvwxyz".split("").forEach((ch, r) =>
-  mount("@" + ch, lfo(tri).cycle((4 * (r === 0 ? 36 : r) ** 2) + "t")))
+export const DEFAULT_MOUNT_DOC = `// griddle mounts — ⌘↵ to apply · later lines override earlier
+// double quotes = mini-notation · single quotes = plain strings
 
-// per-slot overrides go here, e.g.:
-// @p: lfo(tri).cycle("196t").phase(0.42)
-// @n: lfo(noise).cycle("2bar").smooth(0.5)
+// LFOs · @0-@9: beat-synced (period = n beats, 0 = half), phase-locked
+'0123456789'.split('').forEach((ch, d) =>
+  mount('@' + ch, lfo(tri).cycle((d === 0 ? 0.5 : d) + 'b').sync().mod('rate', 0.5, 2)))
+
+// LFOs · @a-@z: slow free-running spread, 2 bars .. 128 bars · mod = fine rate
+spread('2bar', '128bar', 26).forEach((c, i) =>
+  mount('@' + 'abcdefghijklmnopqrstuvwxyz'[i], lfo(tri).cycle(c).mod('rate', 0.5, 2)))
+
+// patterns · euclidean tables (positional: drive port = position)
+// $1-$8: x(n,8) · $9: x(9,16) · $a-$p: x(1..16,16) · $q-$z: x(1..10,12) · $0: silence
+'12345678'.split('').forEach((ch, i) =>
+  mount('$' + ch, pat('x(' + (i + 1) + ',8)').gsteps(8)))
+mount('$9', pat('x(9,16)').gsteps(16))
+'abcdefghijklmnop'.split('').forEach((ch, i) =>
+  mount('$' + ch, pat('x(' + (i + 1) + ',16)').gsteps(16)))
+'qrstuvwxyz'.split('').forEach((ch, i) =>
+  mount('$' + ch, pat('x(' + (i + 1) + ',12)').gsteps(12)))
+mount('$0', pat('~').gsteps(8))
+
+// overrides go below, e.g.:
+// @p: lfo(tri).cycle('196t').phase(0.42)
+// $b: note("c3 [e3 g3] a2 <g3 b3>").cycle('2b').vel(85)
 `;
 
 // convenience: evaluate with last-good retention + error capture

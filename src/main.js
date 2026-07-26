@@ -99,6 +99,15 @@ const clock = new Clock({
         midi.cc(e.channel, e.controller, e.value, timeMs);
       }
     }
+    // mounted U/V MIDI faces: notes at true fractional times, durations
+    // from hap whole spans
+    for (const e of machine.noteEvents) {
+      const at = timeMs + e.frac * tickMs;
+      const durMs = Math.max(e.durTicks * tickMs, 15);
+      midi.noteOn(e.channel, e.note, e.velocity, at);
+      midi.noteOff(e.channel, e.note, at + durMs);
+      if (previewCheck.checked) synth.note(e.note, e.velocity, at, durMs);
+    }
     // F/G smooth-CC crossings: sub-tick timestamps, thinned to >=5ms per
     // stream (always keeping each stream's final value of the tick)
     const MIN_CC_MS = 5;
@@ -388,6 +397,16 @@ function loadDemo() {
       { x: DEMO.origin.x + tx, y: DEMO.origin.y + ty },
     );
   }
+  // demo overrides ride on the default tables (later lines win), keeping the
+  // demo's slots 0/1 meaning what the legacy panel said they meant
+  const demoMounts =
+    DEFAULT_MOUNT_DOC +
+    `\n// demo overrides\n$0: pat('x(5,8)').gsteps(8)\n$1: "0 2 4 <7 9> 4 2"\n`;
+  mountEditor.setSource(demoMounts);
+  const seeded = tryEvaluate(demoMounts, mounts);
+  mounts = seeded.table;
+  machine.mounts = mounts;
+  renderMountBar(seeded.error);
   showSlot(0);
   saveState();
 }

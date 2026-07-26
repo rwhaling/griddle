@@ -229,7 +229,7 @@ const faceValue = (m, x, y) => {
 };
 
 // tri signal sampled at 64 points is exact at quarter-phase breakpoints
-const TRI_4T = `@a: lfo(tri).cycle("4t")`;
+const TRI_4T = `@a: lfo(tri).cycle('4t')`;
 
 describe('F — mount-driven LFO operator', () => {
   it('walks a mounted triangle: peak at half cycle, zero at wrap', () => {
@@ -253,10 +253,10 @@ describe('F — mount-driven LFO operator', () => {
   });
 
   it('re-mounting with a different cycle never jumps phase', () => {
-    const m = lfoMachine(`@a: lfo(tri).cycle("16t")`);
+    const m = lfoMachine(`@a: lfo(tri).cycle('16t')`);
     for (let i = 0; i < 5; i++) m.step();
     const before = faceValue(m, 8, 2);
-    m.mounts = evaluateMountDoc(`@a: lfo(tri).cycle("100t")`);
+    m.mounts = evaluateMountDoc(`@a: lfo(tri).cycle('100t')`);
     m.step();
     const after = faceValue(m, 8, 2);
     // worst per-tick move at either rate: 2·inc·1296 ≈ 162 (16t) — no jump
@@ -271,7 +271,7 @@ describe('F — mount-driven LFO operator', () => {
     m.step();
     expect(faceValue(m, 8, 2)).toBe(0); // shape(0)
     const a = lfoMachine(TRI_4T);
-    const b = lfoMachine(`@a: lfo(tri).cycle("4t").phase(0.25)`);
+    const b = lfoMachine(`@a: lfo(tri).cycle('4t').phase(0.25)`);
     a.step();
     b.step(); // b leads by a quarter: at half phase = peak
     expect(faceValue(b, 8, 2)).toBe(1295);
@@ -280,7 +280,7 @@ describe('F — mount-driven LFO operator', () => {
 
   it('mount range is the base; min/max port literals override; inversion works', () => {
     // mount range only
-    const m1 = lfoMachine(`@a: lfo(tri).cycle("4t").range(0, 63.5)`);
+    const m1 = lfoMachine(`@a: lfo(tri).cycle('4t').range(0, 63.5)`);
     m1.step();
     m1.step(); // peak of half-range
     expect(faceValue(m1, 8, 2)).toBe(face1296(FULL / 2));
@@ -298,12 +298,12 @@ describe('F — mount-driven LFO operator', () => {
 
   it("mod 'rate' multiplies speed; mod 'depth' collapses toward center", () => {
     // rate z with args (0.5, 2) => x2 speed: 8t cycle peaks in 2 ticks
-    const fast = lfoMachine(`@a: lfo(tri).cycle("8t").mod('rate', 0.5, 2)`, { mod: 'z' });
+    const fast = lfoMachine(`@a: lfo(tri).cycle('8t').mod('rate', 0.5, 2)`, { mod: 'z' });
     fast.step();
     fast.step();
     expect(faceValue(fast, 8, 2)).toBe(1295);
     // depth 0 => range collapsed to center: face pinned at half regardless of phase
-    const flat = lfoMachine(`@a: lfo(tri).cycle("4t").mod('depth')`, { mod: '0' });
+    const flat = lfoMachine(`@a: lfo(tri).cycle('4t').mod('depth')`, { mod: '0' });
     flat.step();
     expect(faceValue(flat, 8, 2)).toBe(face1296(FULL / 2));
     flat.step();
@@ -321,13 +321,13 @@ describe('F — mount-driven LFO operator', () => {
       expect(falling[i]).toBeLessThan(falling[i - 1]);
     }
     // step shape: one edge per transition, no staircase burst
-    const s = lfoMachine(`@a: lfo("0 z").cycle("4t")`, { ctrl: '7' });
+    const s = lfoMachine(`@a: lfo("0 z").cycle('4t')`, { ctrl: '7' });
     s.step(); // announces initial 0
     s.step();
     s.step(); // the 0 -> z edge lands in here
     const all = [];
     // rerun cleanly to collect per-tick counts
-    const s2 = lfoMachine(`@a: lfo("0 z").cycle("4t")`, { ctrl: '7' });
+    const s2 = lfoMachine(`@a: lfo("0 z").cycle('4t')`, { ctrl: '7' });
     for (let i = 0; i < 4; i++) {
       s2.step();
       all.push(s2.ccEvents.map((e) => e.value7));
@@ -339,7 +339,7 @@ describe('F — mount-driven LFO operator', () => {
   });
 
   it('noise is deterministic and respects the black-hole device', () => {
-    const doc = `@a: lfo(noise).cycle("4t")\ndevices({ 0: null })`;
+    const doc = `@a: lfo(noise).cycle('4t')\ndevices({ 0: null })`;
     const run = () => {
       const m = lfoMachine(doc, { ctrl: '7' });
       const log = [];
@@ -358,7 +358,7 @@ describe('F — mount-driven LFO operator', () => {
   });
 
   it('.sync() anchors phase to the metronome (no accumulator drift)', () => {
-    const m = lfoMachine(`@a: lfo(tri).cycle("4t").sync()`);
+    const m = lfoMachine(`@a: lfo(tri).cycle('4t').sync()`);
     m.step();
     m.step(); // metronome 2: sweep [0.25, 0.5) -> face = tri(0.5) = peak
     expect(faceValue(m, 8, 2)).toBe(1295);

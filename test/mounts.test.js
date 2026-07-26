@@ -45,8 +45,8 @@ describe('cycle specs', () => {
 describe('mount document evaluation', () => {
   it('mounts labeled lfos, global and device-qualified, with lookup fallback', () => {
     const table = evaluateMountDoc(`
-      @a: lfo(tri).cycle("4b").range(40, 90)
-      @2a: lfo(saw).cycle("16t")
+      @a: lfo(tri).cycle('4b').range(40, 90)
+      @2a: lfo(saw).cycle('16t')
     `);
     expect(table.entries.size).toBe(2);
     const global = table.lookup('@', 5, 10); // device 5 slot a: no @5a -> @a
@@ -59,15 +59,15 @@ describe('mount document evaluation', () => {
   });
 
   it('devices() populates the map; null is a legal black hole', () => {
-    const table = evaluateMountDoc(`devices({ 0: "IAC Bus 1", 3: null })`);
+    const table = evaluateMountDoc(`devices({ 0: 'IAC Bus 1', 3: null })`);
     expect(table.deviceMap[0]).toBe('IAC Bus 1');
     expect(table.deviceMap[3]).toBeNull();
   });
 
   it('mount() and plain JS loops work (bulk definition)', () => {
     const table = evaluateMountDoc(`
-      spread("1b", "32b", 4).forEach((c, i) =>
-        mount('@' + "wxyz"[i], lfo(sine).cycle(c)))
+      spread('1b', '32b', 4).forEach((c, i) =>
+        mount('@' + 'wxyz'[i], lfo(sine).cycle(c)))
     `);
     expect(table.entries.size).toBe(4);
     const cycles = ['w', 'x', 'y', 'z'].map((s) => table.entries.get('@' + s).cycleTicks);
@@ -79,8 +79,8 @@ describe('mount document evaluation', () => {
   it('builder is immutable: shared base defs do not cross-contaminate', () => {
     const table = evaluateMountDoc(`
       const base = lfo(sine).range(40, 90)
-      @a: base.cycle("1b")
-      @b: base.cycle("8b")
+      @a: base.cycle('1b')
+      @b: base.cycle('8b')
     `);
     expect(table.entries.get('@a').cycleTicks).toBe(4);
     expect(table.entries.get('@b').cycleTicks).toBe(32);
@@ -88,21 +88,25 @@ describe('mount document evaluation', () => {
   });
 
   it('multi-line chained definitions parse (labels span statements)', () => {
-    const table = evaluateMountDoc(`@a: lfo(tri)\n  .cycle("2b")\n  .range(10, 20)`);
+    const table = evaluateMountDoc(`@a: lfo(tri)\n  .cycle('2b')\n  .range(10, 20)`);
     expect(table.entries.get('@a').range).toEqual([10, 20]);
   });
 
   it('tryEvaluate retains last-good table on error', () => {
     const first = tryEvaluate(`@a: lfo(sine)`, null);
     expect(first.error).toBeNull();
-    const second = tryEvaluate(`@a: lfo(sine).cycle("4hz")`, first.table);
+    const second = tryEvaluate(`@a: lfo(sine).cycle('4hz')`, first.table);
     expect(second.error).toMatch(/bad cycle spec/);
     expect(second.table.entries.get('@a')).toBeTruthy(); // last-good retained
   });
 
-  it('rejects $ pattern mounts for now with a clear message', () => {
-    const { error } = tryEvaluate(`$a: "0 2 4"`, null);
-    expect(error).toMatch(/not yet implemented|pattern/i);
+  it('$ labels mount patterns (doc seven): bare mini-string via the plugin', () => {
+    const { table, error } = tryEvaluate(`$a: "0 2 4"`, null);
+    expect(error).toBeNull();
+    const art = table.entries.get('$a');
+    expect(art.kind).toBe('pattern');
+    expect(art.steps).toBe(3);
+    expect(art.cycleTicks).toBeNull(); // bare = positional
   });
 });
 
@@ -155,13 +159,17 @@ describe('shape compilation', () => {
 });
 
 describe('default mount document', () => {
-  it('mounts all 36 slots as a coarse frequency knob on the old curve', async () => {
+  it('mounts 36 LFOs (digits beat-synced, letters slow spread) + fine-rate mod', async () => {
     const { DEFAULT_MOUNT_DOC } = await import('../src/mounts.js');
     const table = evaluateMountDoc(DEFAULT_MOUNT_DOC);
-    expect(table.entries.size).toBe(36);
-    expect(table.entries.get('@8').cycleTicks).toBe(256); // old rate 8
-    expect(table.entries.get('@1').cycleTicks).toBe(4); // old rate 1: one beat
-    expect(table.entries.get('@0').cycleTicks).toBe(4 * 36 * 36); // map_zero
-    expect(table.entries.get('@z').cycleTicks).toBe(4 * 35 * 35);
+    const ats = [...table.entries.keys()].filter((k) => k[0] === '@');
+    expect(ats.length).toBe(36);
+    expect(table.entries.get('@0').cycleTicks).toBe(2); // half beat
+    expect(table.entries.get('@3').cycleTicks).toBe(12); // 3 beats
+    expect(table.entries.get('@3').sync).toBe(true);
+    expect(table.entries.get('@a').cycleTicks).toBeCloseTo(32); // 2 bars
+    expect(table.entries.get('@z').cycleTicks).toBeCloseTo(2048, 0); // 128 bars
+    expect(table.entries.get('@a').sync).toBe(false); // letters free-run
+    expect(table.entries.get('@8').mod.name).toBe('rate'); // fine-freq mod
   });
 });

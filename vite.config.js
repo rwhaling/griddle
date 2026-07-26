@@ -14,6 +14,7 @@ export default defineConfig({
       { find: /^@strudel\/core\/(.*)$/, replacement: strudel('core', '$1') },
       { find: '@strudel/core', replacement: strudel('core', 'index.mjs') },
       { find: '@strudel/mini', replacement: strudel('mini', 'index.mjs') },
+      { find: /^@strudel\/transpiler\/(.*)$/, replacement: strudel('transpiler', '$1') },
       { find: '@strudel/transpiler', replacement: strudel('transpiler', 'transpiler.mjs') },
       // the strudel sources live outside this project root, so their bare
       // imports must be pinned to our installed copies
