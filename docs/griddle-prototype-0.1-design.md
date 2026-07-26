@@ -227,6 +227,12 @@ file) or live MIDI input. Keep this boundary legible — it's a feature.
 > struck grid-face semantics; backward-compat theorem; `.cycle()` rename)
 > is designed in `griddle-pattern-mounts-design.md` — resolves doc six §9;
 > implement with/after doc six.
+>
+> 2026-07-26: docs six AND seven core IMPLEMENTED (101 tests): mount
+> document + CM6 pane, mount-driven F, $ patterns + mounted U/V with MIDI
+> face, default tables as code. Pending: doc seven §7 UI pass
+> (chrome reorg, serialization v2, slot-panel retirement), per-line error
+> markers, device routing.
 
 - **Full Strudel expressions in slots** — adds `@strudel/transpiler` (+ acorn,
   escodegen). Mini-notation only for 0.1. Mondo notation (`@strudel/mondo`,

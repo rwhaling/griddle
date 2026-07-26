@@ -6,11 +6,28 @@ device-qualified slots that the F operator references. Sixth design doc;
 revises F as specified in `griddle-smooth-cc-design.md` (whose §5 crossing
 contract is retained unchanged).*
 
-Status: **implemented 2026-07-26** (steps 1–2: mount infrastructure,
-editor pane, mount-driven F per the doc-seven port revision — min/max
-override ports included). Remaining from this doc: device-table *routing*
-to multiple physical outputs (currently single selected output; black
-holes work). Originally designed 2026-07-12. Scoped to **LFOs
+Status: **fully implemented 2026-07-26** (mount infrastructure, CM6 editor
+pane with eval-flash + dirty indicator, mount-driven F with min/max
+override ports, all declared mods incl. skew/spread/smooth). Remaining
+from this doc: device-table *routing* to multiple physical outputs
+(currently single selected output; `devices({n: null})` black holes work).
+Originally designed 2026-07-12.
+
+> **Implementation deltas (2026-07-26):**
+> - **Default document revised per user feedback**: `@0`–`@9` are
+>   beat-synced (period = n beats, 0 = half beat, `.sync()`), `@a`–`@z` a
+>   geometric free-running spread 2–128 bars, ALL with
+>   `.mod('rate', 0.5, 2)` — the mod port is a fine-frequency bend by
+>   default. The earlier "old quadratic curve" table survives as a
+>   user-pasteable alternative (single-quoted).
+> - **Strudel quoting convention active** (via `plugin-mini`): double
+>   quotes = mini-notation, single quotes = plain strings — with
+>   *forgiveness*: invalid-mini double-quoted strings stay plain strings,
+>   and single-token mini patterns unwrap where specs are expected, so
+>   `.cycle("4b")` works; string *methods*/concatenation still require
+>   single quotes.
+> - Signal shape sampling is memoized per signal object (36 `lfo(tri)`
+>   mounts sample `tri` once). Scoped to **LFOs
 only** by user decision: the same mechanism is expected to eventually serve
 the pattern bank and U/V, but §9 records that as open — including a genuine
 unresolved design tension — rather than designing it here. The current
@@ -281,22 +298,18 @@ Recorded for the follow-up discussion, per user decision:
    resolve in passing** — this deserves its own design pass, alongside
    pattern banking and devices.
 
-## 10. Open questions
+## 10. Open questions — status as of 2026-07-26
 
-1. **Range units**: drafted as CC 0–127 floats (matches the MIDI/Ableton
-   headspace). Alternatives: normalized 0–1 (strudel-native), base-36.
-2. **`.sync()`**: include transport-anchored phase in v1, or defer?
-   (Free-running accumulator is the default regardless.)
-3. **Steps-override spelling** for future pattern mounts (`.gsteps(8)` vs
-   other) — deferred with patterns.
-4. **`devices()` matching**: exact port name vs case-insensitive
-   substring. Draft: substring, warn on ambiguity.
-5. **Global addressing defaults** (`output({...})` auto-assigning CCs by
-   slot) — sketched during design, not adopted (user preferred explicit
-   ports + bulk-mount loops). Revisit only if port-cell boilerplate
-   becomes a real pain.
-6. **Breakpoint resolution** N=64 default — per-definition override
-  worth exposing?
+1. **Range units**: ✔ RESOLVED — CC 0–127 floats, implemented.
+2. **`.sync()`**: ✔ RESOLVED — implemented (transport-anchored phase;
+   digits in the default table use it).
+3. **Steps-override spelling**: ✔ RESOLVED — `.gsteps()` (forced by the
+   verified `steps = pace` collision, doc seven §6.1).
+4. **`devices()` matching**: still open — routing to multiple physical
+   outputs not yet implemented.
+5. **Global addressing defaults** (`output({...})`): not adopted;
+   unchanged.
+6. **Breakpoint resolution** N=64: still fixed; no pressure yet.
 
 ## 11. Testing plan (headless)
 

@@ -72,33 +72,44 @@ to reading order (the earlier cell is the source), which is also what makes
 transitive propagation always terminate. Wires separate data routing from
 spatial layout: long-distance connections without ladders of H/J passthroughs.
 
-### Pattern operators (the new thing)
+### Pattern operators: U and V
 
-Patterns live in a 36-slot bank (sidebar), written in strudel mini-notation.
-`U` and `V` are pure functions of (slot, position):
+`U` and `V` are the **two projections of one mounted pattern** — U the
+strike-view (onsets → bangs), V the sound-view (values). Patterns mount in
+the **mount document** (⌘E) under the `$` sigil, as mini-notation or full
+strudel expressions; ports are `dev(4) ch(3) slot(2) drive(1)`.
 
-```
-slot pos U        slot pos V
-      [bang]            [value]
-```
+**The mount decides the time model:**
 
-- window for position p = `[p/S, (p+1)/S)` in pattern time; S = the pattern's
-  step count (auto from `_steps`, or the slot's steps override — euclids like
-  `x(5,8)` need override 8)
-- positions are **not** wrapped mod S: position 7 of a 4-step pattern reaches
-  the pattern's second cycle, so `<a b>` alternation and `?` randomness unfold.
-  The driver's clock mod decides how much of the pattern loops.
-- `V`: earliest onset's value, coerced to base-36 (numbers mod 36; single
-  chars `0-z` literally). Rests write NONE — no hidden sample-hold.
-- `U`: bangs iff the window holds an onset with truthy value (`~` rest, `f`,
-  `0`, `false` don't bang). `x(5,8)`, `x ~ x [x x]`, `x? x` all work.
-- a slot containing exactly `sine`, `saw`, `tri`, `square`, `rand`, `perlin`,
-  `cosine`, or `isaw` is a continuous signal: V samples it as a 36-entry
-  wavetable (position = phase in 36ths), U never bangs.
+- **Bare mount = positional** (`$a: "0 3 7 <9 b>"`): drive port = position;
+  window `[p/S, (p+1)/S)`, S from `_steps` or `.gsteps(n)` (euclids need
+  it: `pat('x(5,8)').gsteps(8)`). Positions are unwrapped — the driver's
+  clock mod decides how much of the pattern loops; `rev` is wiring,
+  phasing is two readers. V = earliest onset's value (rests write NONE);
+  U bangs on truthy onsets.
+- **`.cycle('2b')` mount = rate-driven**: the pattern advances itself
+  (phase is unbounded — long-form structure keeps unfolding); drive port
+  becomes the **mod** input (`.mod('rate'|'phase'|'transpose'|'degrade'|
+  'velocity')`); a bang resets phase; `.sync()` locks phase to the
+  transport. V's grid face shows the *sounding* value (durations hold);
+  U's shows whether anything *struck* this tick.
 
-Drive position with `C` (clock) for sequencing, `R` (random) for
-nondeterministic access, arithmetic for transforms, or feedback from the
-grid's own state — `rev` is wiring, phasing is two readers at different rates.
+**The MIDI face** (either time model): put a literal in the channel cell
+and haps play as notes at their true fractional times — V with pitch from
+values (`.base(48)`/`.oct(n)`, or hap control objects from `note(...)`),
+velocity from `.vel(v)` or the hap, **duration from the hap's whole span**;
+U as fixed-note triggers (`.note(36)` — drum lanes). `devices({n: null})`
+black-holes a device patch-wide. Without a channel cell, U/V are pure grid
+citizens — exactly the 0.1 semantics.
+
+**Default tables** (visible code in the mount doc): `@0`–`@9` beat-synced
+LFOs (period = n beats), `@a`–`@z` slow spread (2–128 bars), all with
+fine-rate mod; `$1`–`$8` = `x(n,8)` euclids ($5 = the cinquillo), `$9` =
+x(9,16), `$a`–`$p` = x(1..16,16), `$q`–`$z` = x(1..10,12).
+
+**Quoting** (strudel convention): double quotes = mini-notation, single
+quotes = plain strings (`.cycle('2b')`). Simple double-quoted specs are
+forgiven; string methods and concatenation are not.
 
 ### Operator reference
 
@@ -122,8 +133,8 @@ grid's own state — `rev` is wiring, phasing is two readers at different rates.
 | `R` | random | mod, rate | random literal |
 | `F` | mounted lfo | mod, slot, max, min, ctrl, ch, dev | smooth CC + coarse/fine pair |
 | `G` | glide | rate, tgt, ctrl, ch, dev | smooth CC + coarse/fine pair |
-| `U` | pattern bang | pos, slot | bang from pattern |
-| `V` | pattern value | pos, slot | value from pattern |
+| `U` | pattern strike | drive, slot, ch, dev | bang + note triggers |
+| `V` | pattern sound | drive, slot, ch, dev | value + pitched notes |
 | `W` | midi cc | val, ctrl, ch, dev | sends CC (bang-discrete) |
 | `Z` | midi note | pitch, oct, hold, vel, ch, dev | sends note |
 

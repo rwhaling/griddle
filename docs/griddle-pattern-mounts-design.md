@@ -6,11 +6,31 @@ as a 2×2 whose first quadrant is exactly the current semantics. Seventh
 design doc; companion to `griddle-lfo-mounts-design.md` (doc six), whose §9
 tension this resolves and whose `.rate()` naming this revises.*
 
-Status: **designed (2026-07-12), pending implementation.** Intended to be
-implemented together with or immediately after doc six (shared
-infrastructure: transpiler pipeline, sigil pre-pass, mount table, device
-table). Backward compatibility with existing patches is a design theorem
-here (§5), not an aspiration.
+Status: **core implemented 2026-07-26** — §1–§6 (the 2×2, mounted U/V,
+active/struck semantics, MIDI face, mods, defaults) are live with 101
+tests. **Pending: the UI pass** — §7's chrome reorganization, §7.1
+serialization v2, slot-panel retirement — plus per-line error markers and
+device routing. Backward compatibility held as designed: the legacy
+slot-panel path remains, byte-identical, until the UI pass retires it.
+
+> **Implementation deltas (2026-07-26):**
+> - **Phase is genuinely UNBOUNDED** for rate-driven mounts — an early
+>   `% 1` wrap made `<0 1 2>` freeze on cycle 0 (caught by tests); never
+>   reintroduce it. `.sync()` uses `metronome × inc`, also unwrapped.
+> - **Prototype extensions limited to verified-free names**: `cycle`,
+>   `gsteps`, `base`, `mod`, `p` (via `defineProperty`; strudel has a
+>   `mod` getter). `note`/`vel`/`oct`/`sync` collide with strudel and live
+>   on the wrapper — start griddle chains with a safe name or `pat()`.
+> - **Quoting convention + forgiveness** (see doc six deltas): double =
+>   mini, single = plain; simple double-quoted specs unwrap gracefully.
+> - **Default euclid tables**: `$1`–`$8` = x(n,8), `$9` = x(9,16) (x(9,8)
+>   is invalid — bjorklund rejects pulses > steps), `$a`–`$p` = x(1..16,16),
+>   `$q`–`$z` = x(1..10,12), `$0` = silence. Demo mounts ride the defaults
+>   with `$0`/`$1` overrides.
+> - **degrade mod** drops onsets by hashing (metronome + frac) — 
+>   deterministic per absolute onset time, replay-safe.
+> - **V-mode reads `'f'` as 15** on the MIDI face (base+15), while U-mode
+>   treats it as false — the mode-dependent reading from 0.1, preserved.
 
 ---
 
@@ -304,23 +324,22 @@ and it had one customer, who prefers migration.
   (crossings machinery generalized: onset events with fracs instead of
   boundary crossings).
 
-## 9. Open questions
+## 9. Open questions — status as of 2026-07-26
 
-1. **Overlapping-actives tiebreak** for V's grid face (proposed: latest
-   onset, then first-in-stack).
-2. **`.sync()`** — transport-anchored phase for patterns and LFOs; one
-   decision covering both (carried from doc six §10.2).
-3. **Chord/voice bookkeeping** on V's MIDI face: simultaneous note-ons
-   are fine; per-note note-off scheduling with mount-swap/mute edge cases
-   needs care (§8).
-4. **Hap control precedence**: mount `.vel()` vs hap-carried `velocity`
-   vs future `.mod('velocity')` — proposed order: mod > hap > mount
-   default.
-5. **Bulk-mount ref plumbing**: if `mount('$'+d+s, ...)` string-building
-   feels fiddly in practice, add `mounts({...})` object-literal form
-   (planned relief valve, not a redesign).
-6. **U MIDI face velocity** — fixed `.vel()` only, or pattern-value-as-
-   velocity for boolean mounts with numeric values?
+1. **Overlapping-actives tiebreak**: ✔ RESOLVED — most recent
+   `whole.begin` wins (implemented in `sweepWindow`).
+2. **`.sync()`**: ✔ RESOLVED — implemented for patterns and LFOs alike.
+3. **Chord/voice bookkeeping**: implemented simply — note-offs are
+   pre-scheduled from whole-span durations, so notes self-terminate
+   across mount swaps and mutes; stop = all-notes-off. No held-voice
+   registry needed so far; revisit only if a real leak appears.
+4. **Hap control precedence**: ✔ RESOLVED as implemented — hap-carried
+   velocity overrides mount `.vel()`; `.mod('velocity')` scales the
+   result on top.
+5. **Bulk-mount ref plumbing**: still open; `mounts({...})` relief valve
+   unbuilt, no pressure yet.
+6. **U MIDI face velocity**: fixed `.vel()` only for now; FALSY onsets
+   don't trigger. Pattern-value-as-velocity remains open.
 
 ## 10. Testing plan (headless)
 
