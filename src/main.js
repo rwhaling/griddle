@@ -48,40 +48,54 @@ const ui = new GridUI(canvas, machine, { onEdit: saveState });
 const mountPane = $('mount-pane');
 const mountBar = $('mount-bar');
 let mounts = new MountTable();
+let lastEvalSource = null; // what the current mount table was built from
+let lastEvalError = null;
+
+// the one path through which mount source becomes a mount table — keeps the
+// dirty indicator truthful everywhere (⌘↵, defaults button, patch load, boot)
+function evalMountSource(source, { flash = false } = {}) {
+  const result = tryEvaluate(source, mounts);
+  mounts = result.table;
+  machine.mounts = mounts;
+  lastEvalSource = source;
+  lastEvalError = result.error;
+  if (flash) mountEditor.flash();
+  renderMountBar();
+}
 
 const mountEditor = new MountEditor($('mount-editor'), {
   onEval: (source) => {
-    const result = tryEvaluate(source, mounts);
-    mounts = result.table;
-    machine.mounts = mounts; // consumed by F once step 2 lands
-    renderMountBar(result.error);
+    evalMountSource(source, { flash: true });
     saveState();
   },
+  onChange: () => renderMountBar(),
   onExit: () => canvas.focus(),
 });
 
-function renderMountBar(error) {
-  if (error) {
-    console.error('[griddle mount]', error); // copyable from devtools too
-    mountBar.innerHTML = `<span class="err">✗ ${error.replace(/</g, '&lt;')}</span>`;
+function renderMountBar() {
+  const dirty = lastEvalSource !== null && mountEditor.getSource() !== lastEvalSource;
+  mountPane.classList.toggle('dirty', dirty);
+  const dirtyPrefix = dirty ? `<span class="dirty">● edited — ⌘↵ to mount</span> · ` : '';
+  if (lastEvalError) {
+    console.error('[griddle mount]', lastEvalError); // copyable from devtools too
+    mountBar.innerHTML = `${dirtyPrefix}<span class="err">✗ ${lastEvalError.replace(/</g, '&lt;')}</span>`;
     return;
   }
-  const refs = [...mounts.entries.keys()].sort();
+  const refs = [...mounts.entries.keys()];
+  const ats = refs.filter((r) => r[0] === '@').length;
+  const dollars = refs.filter((r) => r[0] === '$').length;
   const devs = Object.keys(mounts.deviceMap).length;
   mountBar.innerHTML = refs.length
-    ? `<span class="ok">✓</span> ${refs.map((r) => `<span class="ref">${r}</span>`).join('')}` +
+    ? `${dirtyPrefix}<span class="ok">✓ mounted</span> · ${ats} @lfo · ${dollars} $pattern` +
       (devs ? ` · ${devs} device${devs > 1 ? 's' : ''}` : '')
-    : 'mounts: none — ⌘↵ to evaluate';
+    : `${dirtyPrefix}mounts: none — ⌘↵ to evaluate`;
 }
 
 $('mount-defaults').addEventListener('click', () => {
   // replace the whole document with the canonical defaults and evaluate —
   // the recovery path when pasted/stale content won't parse
   mountEditor.setSource(DEFAULT_MOUNT_DOC);
-  const result = tryEvaluate(DEFAULT_MOUNT_DOC, mounts);
-  mounts = result.table;
-  machine.mounts = mounts;
-  renderMountBar(result.error);
+  evalMountSource(DEFAULT_MOUNT_DOC, { flash: true });
   saveState();
   mountEditor.focus();
 });
@@ -307,14 +321,13 @@ function applyState(state) {
     const mountSource = Array.isArray(state.mount) ? state.mount.join('\n') : (state.mount ?? '');
     mountEditor.setSource(mountSource);
     if (mountSource.trim()) {
-      const result = tryEvaluate(mountSource, mounts);
-      mounts = result.table;
-      machine.mounts = mounts;
-      renderMountBar(result.error);
+      evalMountSource(mountSource);
     } else {
       mounts = new MountTable();
       machine.mounts = mounts;
-      renderMountBar(null);
+      lastEvalSource = '';
+      lastEvalError = null;
+      renderMountBar();
     }
   }
 }
@@ -416,10 +429,7 @@ function loadDemo() {
     DEFAULT_MOUNT_DOC +
     `\n// demo overrides\n$0: pat('x(5,8)').gsteps(8)\n$1: "0 2 4 <7 9> 4 2"\n`;
   mountEditor.setSource(demoMounts);
-  const seeded = tryEvaluate(demoMounts, mounts);
-  mounts = seeded.table;
-  machine.mounts = mounts;
-  renderMountBar(seeded.error);
+  evalMountSource(demoMounts);
   showSlot(0);
   saveState();
 }
@@ -450,10 +460,7 @@ if (!loadState()) loadDemo();
 // visible, editable, erasable — never hidden engine behavior)
 if (!mountEditor.getSource().trim()) {
   mountEditor.setSource(DEFAULT_MOUNT_DOC);
-  const seeded = tryEvaluate(DEFAULT_MOUNT_DOC, mounts);
-  mounts = seeded.table;
-  machine.mounts = mounts;
-  renderMountBar(seeded.error);
+  evalMountSource(DEFAULT_MOUNT_DOC);
 }
 gridWInput.value = machine.width;
 gridHInput.value = machine.height;

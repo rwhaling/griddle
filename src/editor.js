@@ -66,6 +66,14 @@ export class MountEditor {
     return this.view.state.doc.toString();
   }
 
+  // brief visual pulse confirming an evaluation happened
+  flash() {
+    const el = this.view.dom;
+    el.classList.remove('eval-flash');
+    void el.offsetWidth; // restart the animation
+    el.classList.add('eval-flash');
+  }
+
   setSource(text) {
     this.view.dispatch({
       changes: { from: 0, to: this.view.state.doc.length, insert: text },
