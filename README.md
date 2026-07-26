@@ -86,9 +86,11 @@ No MIDI gear handy: check **preview** in the bottom strip. The demo patch
 (auto-loads first run) plays a 24-tick polymetric arpeggio — a euclidean
 cinquillo against a 12-tick melody scan.
 
-**Build caveat**: griddle consumes strudel as *source* from a sibling
-checkout (`../strudel`, via `vite.config.js` aliases) because the published
-npm bundles are currently broken. Cloning this repo alone will not build.
+Griddle consumes strudel as *source* (the published npm bundles are
+currently broken); the tested copy is vendored in `vendor/strudel`
+(AGPL-3.0 — see its README), so a fresh clone builds self-contained. A
+sibling `../strudel` monorepo checkout is preferred automatically when
+present. Pushes to master deploy to GitHub Pages via Actions.
 
 ## Reference
 
