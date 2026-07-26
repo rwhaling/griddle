@@ -16,6 +16,7 @@
 
 import { TYPE, getType, getPower, getMuted, MUTE_BIT, charToCell, cellToChar, makeFlags } from './values.js';
 import { copyRegion, cutRegion, pasteRegion, regionToText } from './clipboard.js';
+import { portCells } from './ports.js';
 
 const COLORS = {
   background: '#14151a',
@@ -35,6 +36,8 @@ const COLORS = {
   wire: '#5f8fbf',
   wirePreview: '#9fc4e8',
   gridBorder: '#26282f',
+  portIn: 'rgba(95, 143, 191, 0.55)', // inputs of the operator under cursor
+  portOut: 'rgba(127, 212, 168, 0.55)', // its outputs
 };
 
 const PATTERN_TAGS = new Set([30, 31]); // U, V
@@ -399,6 +402,24 @@ export class GridUI {
       ctx.strokeStyle = COLORS.wirePreview;
       ctx.lineWidth = 1.5;
       ctx.strokeRect(ox + 0.5, oy + 0.5, cell - 1, cell - 1);
+    }
+
+    // port highlighting: when the cursor sits on an operator, underline its
+    // input cells (blue) and output cells (green) — CLAVIER-style live help
+    const ports = portCells(machine, this.cursor.x, this.cursor.y);
+    if (ports) {
+      ctx.lineWidth = 2;
+      const underline = (gx, gy, color) => {
+        if (gx < 0 || gy < 0 || gx >= machine.width || gy >= machine.height) return;
+        const [sx, sy] = this.toScreen(gx, gy);
+        ctx.strokeStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(sx + 3, sy + cell - 3);
+        ctx.lineTo(sx + cell - 3, sy + cell - 3);
+        ctx.stroke();
+      };
+      for (const [gx, gy] of ports.ins) underline(gx, gy, COLORS.portIn);
+      for (const [gx, gy] of ports.outs) underline(gx, gy, COLORS.portOut);
     }
 
     // selection border + cursor

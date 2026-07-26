@@ -5,6 +5,7 @@ import { GridUI } from './ui.js';
 import { MountEditor } from './editor.js';
 import { MountTable, tryEvaluate, DEFAULT_MOUNT_DOC } from './mounts.js';
 import { gridToRows, rowsToGrid, cellsToGrid, textualizeSlots } from './patchfile.js';
+import { describeAt } from './ports.js';
 import { DEMO } from './demo.js';
 import { charToCell } from './values.js';
 
@@ -177,9 +178,14 @@ playBtn.addEventListener('click', () => setPlaying(!playing));
 panicBtn.addEventListener('click', () => midi.allNotesOff());
 
 document.addEventListener('keydown', (e) => {
-  // ⌘E toggles the mount editor from anywhere
+  // ⌘E toggles the mount editor from anywhere; ⌘. = panic everywhere
   if (e.key === 'e' && (e.metaKey || e.ctrlKey)) {
     toggleMountPane();
+    e.preventDefault();
+    return;
+  }
+  if (e.key === '.' && (e.metaKey || e.ctrlKey)) {
+    midi.allNotesOff();
     e.preventDefault();
     return;
   }
@@ -222,6 +228,35 @@ function refreshMidiOutputs() {
   }
   if (midi.output) midiSelect.value = midi.output.id;
   if (!outputs.length) previewCheck.checked = true;
+  // port list with copy-name buttons: authoring support for devices()
+  const portsEl = $('midi-ports');
+  portsEl.innerHTML = '';
+  for (const out of outputs) {
+    const span = document.createElement('span');
+    span.className = 'port';
+    span.textContent = out.name;
+    const btn = document.createElement('button');
+    btn.textContent = 'copy';
+    btn.addEventListener('click', () => navigator.clipboard?.writeText(out.name));
+    portsEl.append(span, btn);
+  }
+}
+
+$('midi-toggle').addEventListener('click', () => {
+  const strip = $('midi-strip');
+  strip.classList.toggle('collapsed');
+  $('midi-toggle').textContent = strip.classList.contains('collapsed') ? 'midi ▸' : 'midi ▾';
+  ui.resizeCanvas();
+});
+
+// right-pane tabs: code editor / reference card
+$('tab-code').addEventListener('click', () => setPaneTab('code'));
+$('tab-ref').addEventListener('click', () => setPaneTab('ref'));
+function setPaneTab(which) {
+  mountPane.classList.toggle('show-ref', which === 'ref');
+  $('tab-code').classList.toggle('active', which === 'code');
+  $('tab-ref').classList.toggle('active', which === 'ref');
+  if (which === 'code') mountEditor.focus();
 }
 
 midiSelect.addEventListener('change', () => midi.select(midiSelect.value));
@@ -387,6 +422,9 @@ clearBtn.addEventListener('click', () => {
 bpmInput.addEventListener('change', saveState);
 
 // ---- render loop ----
+const contextLine = $('context');
+let lastContext = '';
+
 function frame() {
   ui.render();
   const pos = `${ui.cursor.x},${ui.cursor.y}`;
@@ -395,6 +433,12 @@ function frame() {
     : /^(tick|stopped)/.test(statusLine.textContent) || statusLine.textContent.includes(',')
       ? `stopped · ${pos}`
       : statusLine.textContent;
+  // the context line: live inspector for the cell under the cursor
+  const desc = `${pos} · ${describeAt(machine, ui.cursor.x, ui.cursor.y)}`;
+  if (desc !== lastContext) {
+    lastContext = desc;
+    contextLine.textContent = desc;
+  }
   requestAnimationFrame(frame);
 }
 
