@@ -120,7 +120,7 @@ grid's own state — `rev` is wiring, phasing is two readers at different rates.
 | `P` | pendulum | mod, rate | bang every rate×mod |
 | `Q` | quote | index | literal → operator |
 | `R` | random | mod, rate | random literal |
-| `F` | lfo | phase, rate, max, min, ctrl, ch, dev | smooth CC + coarse/fine pair |
+| `F` | mounted lfo | mod, slot, max, min, ctrl, ch, dev | smooth CC + coarse/fine pair |
 | `G` | glide | rate, tgt, ctrl, ch, dev | smooth CC + coarse/fine pair |
 | `U` | pattern bang | pos, slot | bang from pattern |
 | `V` | pattern value | pos, slot | value from pattern |
@@ -143,10 +143,17 @@ accurate, so slow sweeps are the cleanest staircase 7-bit MIDI can express.
 - `G` slews toward its target; full scale takes rate² ticks (rate 0 =
   instant); a bang **snaps** to target (one CC edge). A fresh G starts at
   its target — no surprise sweep.
-- `F` is a triangle phase accumulator: **rate changes never jump the
-  phase**; a bang **resets** it; the phase-offset port makes two Fs a
-  quadrature pair; min/max scale the output (min > max inverts). Period =
-  4·rate² ticks (rate 1 = one beat).
+- `F` is **mount-driven**: its slot port references an `@` definition in
+  the mount document (⌘E) — `@a: lfo(tri).cycle("4b").range(40, 90)` —
+  with device-qualified lookup (`@<dev><slot>` ?? `@<slot>`). Shapes are
+  strudel signals, patterns, or mini-strings compiled to breakpoint
+  tables; `noise` is hash-deterministic. Phase lives in the operator, so
+  re-evaluating the mount never jumps it; a bang resets it; `.sync()`
+  anchors it to the transport instead. min/max port literals coarsely
+  override the mount's range; the mod port's meaning is declared by the
+  definition (`.mod('rate'|'phase'|'depth'|'offset'|'skew'|'smooth')`).
+  `devices({n: null})` black-holes a device (grid face lives, wire
+  silent). An F whose slot has no mount is inert.
 
 Unpowered F/G freeze. 14-bit CC / pitch bend and the Ableton bridge are
 designed (see `docs/`) but not yet implemented — 7-bit only for now.

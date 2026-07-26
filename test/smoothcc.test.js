@@ -2,9 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { Machine } from '../src/interpreter.js';
 import { charToCell, cellToChar } from '../src/values.js';
 import {
-  FULL, PHASE, cc7, face1296, targetInternal, glideStep, lfoInc,
-  triAt, lfoPieces, scaleV, crossings,
+  FULL, cc7, face1296, targetInternal, glideStep, scaleV, crossings,
+  tablePieces, tableValue, noisePieces, warpTable, intHash, NOISE_STEPS,
 } from '../src/modulation.js';
+import { evaluateMountDoc } from '../src/mounts.js';
 
 const place = (m, x, y, char) => m.grid.set(x, y, charToCell(char));
 const clear = (m, x, y) => m.grid.set(x, y, { flags: 0, letter: 0 });
@@ -28,23 +29,67 @@ describe('modulation math (pure)', () => {
     expect(glideStep(35)).toBe(Math.round(FULL / 1225));
   });
 
-  it('triangle: 0 at phase 0, FULL at half, symmetric', () => {
-    expect(triAt(0)).toBe(0);
-    expect(triAt(PHASE / 2)).toBe(FULL);
-    expect(triAt(PHASE / 4)).toBe(FULL / 2);
-    expect(triAt((3 * PHASE) / 4)).toBe(FULL / 2);
+  const TRI = [[0, 0], [0.5, 1], [1, 0]];
+
+  it('tableValue interpolates and wraps; sides resolve step edges', () => {
+    expect(tableValue(TRI, 0)).toBe(0);
+    expect(tableValue(TRI, 0.25)).toBe(0.5);
+    expect(tableValue(TRI, 0.5)).toBe(1);
+    expect(tableValue(TRI, 1.25)).toBe(0.5); // wraps
+    const STEP = [[0, 0], [0.5, 0], [0.5, 1], [1, 1]];
+    expect(tableValue(STEP, 0.5, 'left')).toBe(0);
+    expect(tableValue(STEP, 0.5, 'right')).toBe(1);
   });
 
-  it('lfoPieces splits at a fold and keeps frac continuity', () => {
-    const inc = lfoInc(1); // PHASE/4
-    const start = PHASE / 2 - inc / 2; // straddles the peak
-    const pieces = lfoPieces(start, inc);
+  it('tablePieces splits at breakpoints across a fold with frac continuity', () => {
+    const pieces = tablePieces(TRI, 0.375, 0.25); // straddles the peak
     expect(pieces.length).toBe(2);
-    expect(pieces[0].v1).toBe(FULL); // peak
-    expect(pieces[1].v0).toBe(FULL);
+    expect(pieces[0].v1).toBe(1);
+    expect(pieces[1].v0).toBe(1);
     expect(pieces[0].f1).toBeCloseTo(pieces[1].f0);
     expect(pieces[0].f0).toBe(0);
     expect(pieces[1].f1).toBe(1);
+  });
+
+  it('tablePieces walks step edges as zero-width vertical pieces', () => {
+    const STEP = [[0, 0], [0.5, 0], [0.5, 1], [1, 1]];
+    const pieces = tablePieces(STEP, 0.25, 0.5);
+    const vertical = pieces.find((p) => p.f1 === p.f0);
+    expect(vertical).toBeTruthy();
+    expect(vertical.v0).toBe(0);
+    expect(vertical.v1).toBe(1);
+  });
+
+  it('vertical pieces emit one CC edge, not a staircase burst', () => {
+    const { events } = crossings(
+      [{ v0: 0, v1: FULL, f0: 0.5, f1: 0.5 }],
+      0,
+    );
+    expect(events.length).toBe(1);
+    expect(events[0].value7).toBe(127);
+    expect(events[0].frac).toBe(0.5);
+  });
+
+  it('warpTable moves the midpoint, preserving order and endpoints', () => {
+    const w = warpTable(TRI, 0.2);
+    expect(w[0]).toEqual([0, 0]);
+    expect(w[2][0]).toBe(1);
+    expect(w[1][0]).toBeCloseTo(0.2); // peak moved
+    const identity = warpTable(TRI, 0.5);
+    expect(identity[1][0]).toBeCloseTo(0.5);
+  });
+
+  it('noisePieces are deterministic, continuous when smooth, stepped when not', () => {
+    const a = noisePieces(0, 1, 0);
+    const b = noisePieces(0, 1, 0);
+    expect(JSON.stringify(a)).toBe(JSON.stringify(b)); // hash determinism
+    expect(a.length).toBeGreaterThanOrEqual(NOISE_STEPS);
+    const smooth = noisePieces(0, 1, 1);
+    for (let i = 1; i < smooth.length; i++) {
+      expect(smooth[i].v0).toBeCloseTo(smooth[i - 1].v1, 9); // no jumps
+    }
+    expect(intHash(5)).toBe(intHash(5));
+    expect(intHash(5)).not.toBe(intHash(6));
   });
 
   it('crossings: full rising sweep hits every 7-bit boundary once, in order', () => {
@@ -160,15 +205,19 @@ describe('G — glide operator', () => {
   });
 });
 
-// F at (8,1): min west(4)=(4,1), max west(3)=(5,1), rate west(2)=(6,1),
-// offset west(1)=(7,1); controller west(5)=(3,1)
-const lfoMachine = ({ ctrl = null, min = null, max = null, rate = '1', offset = '0' } = {}) => {
+// Mount-driven F at (8,1): dev(7)=x1, ch(6)=x2, ctrl(5)=x3, min(4)=x4,
+// max(3)=x5, slot(2)=x6, mod(1)=x7. TRI4 = exact triangle over 4 ticks.
+const TRI4 = `@a: lfo("0@0 1@0".slow(1))`; // placeholder replaced below
+
+const lfoMachine = (mountDoc, { ctrl = null, min = null, max = null, slot = 'a', mod = null, dev = null } = {}) => {
   const m = new Machine(12, 8, null);
+  m.mounts = evaluateMountDoc(mountDoc);
+  if (dev !== null) place(m, 1, 1, dev);
   if (ctrl !== null) place(m, 3, 1, ctrl);
   if (min !== null) place(m, 4, 1, min);
   if (max !== null) place(m, 5, 1, max);
-  place(m, 6, 1, rate);
-  place(m, 7, 1, offset);
+  place(m, 6, 1, slot);
+  if (mod !== null) place(m, 7, 1, mod);
   place(m, 8, 1, 'F');
   return m;
 };
@@ -179,90 +228,150 @@ const faceValue = (m, x, y) => {
   return coarse * 36 + fine;
 };
 
-describe('F — LFO operator', () => {
-  it('runs a triangle: rises to peak at half period', () => {
-    const m = lfoMachine({ rate: '1' }); // period 4 ticks
-    m.step(); // phase 0 -> quarter; face at quarter = FULL/2
+// tri signal sampled at 64 points is exact at quarter-phase breakpoints
+const TRI_4T = `@a: lfo(tri).cycle("4t")`;
+
+describe('F — mount-driven LFO operator', () => {
+  it('walks a mounted triangle: peak at half cycle, zero at wrap', () => {
+    const m = lfoMachine(TRI_4T);
+    m.step(); // phase 0 -> 0.25; face = tri(0.25) = half
     expect(faceValue(m, 8, 2)).toBe(face1296(FULL / 2));
-    m.step(); // half: peak
+    m.step(); // peak
     expect(faceValue(m, 8, 2)).toBe(1295);
     m.step();
-    m.step(); // full cycle: back to 0
+    m.step(); // full cycle
     expect(faceValue(m, 8, 2)).toBe(0);
   });
 
-  it('rate change does not jump phase (the accumulator property)', () => {
-    const m = lfoMachine({ rate: '2' }); // period 16 ticks
+  it('is inert without a mount (face untouched), wakes on slot switch', () => {
+    const m = lfoMachine(TRI_4T, { slot: 'b' }); // @b unmounted
+    m.step();
+    expect(charAt(m, 8, 2)).toBe('.'); // no face write
+    place(m, 6, 1, 'a'); // switch to the mounted slot
+    m.step();
+    expect(charAt(m, 8, 2)).not.toBe('.');
+  });
+
+  it('re-mounting with a different cycle never jumps phase', () => {
+    const m = lfoMachine(`@a: lfo(tri).cycle("16t")`);
     for (let i = 0; i < 5; i++) m.step();
     const before = faceValue(m, 8, 2);
-    place(m, 6, 1, '5'); // period 100 ticks — naive phase=t*rate would jump wildly
+    m.mounts = evaluateMountDoc(`@a: lfo(tri).cycle("100t")`);
     m.step();
     const after = faceValue(m, 8, 2);
-    const maxStep = Math.ceil((2 * Math.max(lfoInc(2), lfoInc(5)) * 1296) / PHASE) + 1;
-    expect(Math.abs(after - before)).toBeLessThanOrEqual(maxStep);
+    // worst per-tick move at either rate: 2·inc·1296 ≈ 162 (16t) — no jump
+    expect(Math.abs(after - before)).toBeLessThanOrEqual(165);
   });
 
-  it('bang resets phase to zero (output = shape(offset))', () => {
-    const m = lfoMachine({ rate: '1' });
+  it('bang resets phase; mount .phase() makes a quadrature pair', () => {
+    const m = lfoMachine(TRI_4T);
     m.step();
-    m.step(); // at peak
+    m.step(); // peak
     place(m, 8, 0, '!');
     m.step();
-    expect(faceValue(m, 8, 2)).toBe(0); // shape(0 + offset 0)
-  });
-
-  it('offset 9 of 36 is a quadrature pair with offset 0', () => {
-    const a = lfoMachine({ rate: '1', offset: '0' });
-    const b = lfoMachine({ rate: '1', offset: '9' }); // quarter cycle
+    expect(faceValue(m, 8, 2)).toBe(0); // shape(0)
+    const a = lfoMachine(TRI_4T);
+    const b = lfoMachine(`@a: lfo(tri).cycle("4t").phase(0.25)`);
     a.step();
-    b.step();
-    // b leads a by a quarter period: b at phase quarter+quarter=half → peak
+    b.step(); // b leads by a quarter: at half phase = peak
     expect(faceValue(b, 8, 2)).toBe(1295);
     expect(faceValue(a, 8, 2)).toBe(face1296(FULL / 2));
   });
 
-  it('min/max scale the output; min > max inverts', () => {
-    const m = lfoMachine({ min: 'a', max: 'k', rate: '1' }); // 10..20
-    m.step();
-    m.step(); // peak
-    expect(faceValue(m, 8, 2)).toBe(face1296(targetInternal(20)));
-    const inv = lfoMachine({ min: 'k', max: 'a', rate: '1' });
-    inv.step();
-    inv.step(); // peak of inverted = min end
-    expect(faceValue(inv, 8, 2)).toBe(face1296(targetInternal(10)));
+  it('mount range is the base; min/max port literals override; inversion works', () => {
+    // mount range only
+    const m1 = lfoMachine(`@a: lfo(tri).cycle("4t").range(0, 63.5)`);
+    m1.step();
+    m1.step(); // peak of half-range
+    expect(faceValue(m1, 8, 2)).toBe(face1296(FULL / 2));
+    // port overrides (a=10, k=20 -> same internal values as the old design)
+    const m2 = lfoMachine(TRI_4T, { min: 'a', max: 'k' });
+    m2.step();
+    m2.step();
+    expect(faceValue(m2, 8, 2)).toBe(face1296(targetInternal(20)));
+    // inverted via ports
+    const m3 = lfoMachine(TRI_4T, { min: 'k', max: 'a' });
+    m3.step();
+    m3.step(); // peak of inverted = min end
+    expect(faceValue(m3, 8, 2)).toBe(face1296(targetInternal(10)));
   });
 
-  it('CC crossings cover a fold within one tick continuously', () => {
-    const m = lfoMachine({ ctrl: '7', rate: '1' }); // quarter cycle per tick
-    m.step(); // 0 -> FULL/2 rising: initial + crossings up to 63
-    m.step(); // FULL/2 -> FULL: rising to 127
-    const upTo = m.ccEvents[m.ccEvents.length - 1].value7;
-    expect(upTo).toBe(127);
-    m.step(); // peak -> FULL/2: falling — monotone decreasing values
+  it("mod 'rate' multiplies speed; mod 'depth' collapses toward center", () => {
+    // rate z with args (0.5, 2) => x2 speed: 8t cycle peaks in 2 ticks
+    const fast = lfoMachine(`@a: lfo(tri).cycle("8t").mod('rate', 0.5, 2)`, { mod: 'z' });
+    fast.step();
+    fast.step();
+    expect(faceValue(fast, 8, 2)).toBe(1295);
+    // depth 0 => range collapsed to center: face pinned at half regardless of phase
+    const flat = lfoMachine(`@a: lfo(tri).cycle("4t").mod('depth')`, { mod: '0' });
+    flat.step();
+    expect(faceValue(flat, 8, 2)).toBe(face1296(FULL / 2));
+    flat.step();
+    expect(faceValue(flat, 8, 2)).toBe(face1296(FULL / 2));
+  });
+
+  it('CC crossings cover a fold; step shapes emit single edges', () => {
+    const m = lfoMachine(TRI_4T, { ctrl: '7' });
+    m.step();
+    m.step(); // rising to 127
+    expect(m.ccEvents[m.ccEvents.length - 1].value7).toBe(127);
+    m.step(); // falling — monotone decreasing
     const falling = m.ccEvents.map((e) => e.value7);
     for (let i = 1; i < falling.length; i++) {
       expect(falling[i]).toBeLessThan(falling[i - 1]);
     }
+    // step shape: one edge per transition, no staircase burst
+    const s = lfoMachine(`@a: lfo("0 z").cycle("4t")`, { ctrl: '7' });
+    s.step(); // announces initial 0
+    s.step();
+    s.step(); // the 0 -> z edge lands in here
+    const all = [];
+    // rerun cleanly to collect per-tick counts
+    const s2 = lfoMachine(`@a: lfo("0 z").cycle("4t")`, { ctrl: '7' });
+    for (let i = 0; i < 4; i++) {
+      s2.step();
+      all.push(s2.ccEvents.map((e) => e.value7));
+    }
+    const flat = all.flat();
+    expect(flat.length).toBeLessThanOrEqual(4); // edges only, never 127-bursts
+    expect(flat).toContain(127);
+    expect(flat[0]).toBe(0);
   });
 
-  it('two identical machines produce identical CC event streams', () => {
+  it('noise is deterministic and respects the black-hole device', () => {
+    const doc = `@a: lfo(noise).cycle("4t")\ndevices({ 0: null })`;
     const run = () => {
-      const m = lfoMachine({ ctrl: '5', rate: '2', offset: '3' });
+      const m = lfoMachine(doc, { ctrl: '7' });
       const log = [];
-      for (let i = 0; i < 40; i++) {
+      for (let i = 0; i < 20; i++) {
         m.step();
-        log.push(...m.ccEvents.map((e) => `${e.value7}@${e.frac.toFixed(6)}`));
+        log.push(faceValue(m, 8, 2));
       }
-      return log.join(' ');
+      return log.join(',');
     };
-    expect(run()).toBe(run());
+    expect(run()).toBe(run()); // hash determinism
+    // black hole: face lives, wire face silenced
+    const m = lfoMachine(doc, { ctrl: '7' });
+    m.step();
+    expect(m.ccEvents.length).toBe(0);
+    expect(charAt(m, 8, 2)).not.toBe('.');
+  });
+
+  it('.sync() anchors phase to the metronome (no accumulator drift)', () => {
+    const m = lfoMachine(`@a: lfo(tri).cycle("4t").sync()`);
+    m.step();
+    m.step(); // metronome 2: sweep [0.25, 0.5) -> face = tri(0.5) = peak
+    expect(faceValue(m, 8, 2)).toBe(1295);
+    m.step();
+    m.step();
+    expect(faceValue(m, 8, 2)).toBe(0); // wrapped exactly with the metronome
   });
 
   it('grid-face writes propagate through wires', () => {
-    const m = lfoMachine({ rate: '1' });
+    const m = lfoMachine(TRI_4T);
     m.addWire({ x: 8, y: 2 }, { x: 2, y: 5 });
     m.step();
     m.step(); // peak
-    expect(charAt(m, 2, 5)).toBe('z'); // coarse byte arrived by wire
+    expect(charAt(m, 2, 5)).toBe('z');
   });
 });

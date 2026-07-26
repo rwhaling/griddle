@@ -6,7 +6,11 @@ device-qualified slots that the F operator references. Sixth design doc;
 revises F as specified in `griddle-smooth-cc-design.md` (whose §5 crossing
 contract is retained unchanged).*
 
-Status: **designed (2026-07-12), pending implementation.** Scoped to **LFOs
+Status: **implemented 2026-07-26** (steps 1–2: mount infrastructure,
+editor pane, mount-driven F per the doc-seven port revision — min/max
+override ports included). Remaining from this doc: device-table *routing*
+to multiple physical outputs (currently single selected output; black
+holes work). Originally designed 2026-07-12. Scoped to **LFOs
 only** by user decision: the same mechanism is expected to eventually serve
 the pattern bank and U/V, but §9 records that as open — including a genuine
 unresolved design tension — rather than designing it here. The current

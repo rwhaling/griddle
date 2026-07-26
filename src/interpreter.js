@@ -18,8 +18,9 @@ import {
 } from './values.js';
 import { PCG } from './pcg.js';
 import {
-  PHASE, face1296, cc7, targetInternal, glideStep, lfoInc, offsetPhase,
-  triAt, lfoPieces, scaleV, crossings,
+  face1296, cc7, targetInternal, glideStep, crossings,
+  tablePieces, tableValue, noisePieces, warpTable, scalePieces,
+  valueToInternal, intHash, NOISE_STEPS,
 } from './modulation.js';
 
 const NONE = { flags: 0, letter: 0 };
@@ -533,46 +534,107 @@ export class Machine {
         break;
       }
       case OP.LFO: {
-        // F: triangle phase accumulator; rate changes never touch the
-        // accumulator (no phase jump); bang resets phase; offset applied at
-        // read time; min/max ports scale the output (min > max inverts).
+        // F, mount-driven (docs six/seven): ports dev(7) ch(6) ctrl(5)
+        // min(4) max(3) slot(2) mod(1). The slot references a mounted lfo
+        // definition (@<dev><slot> ?? @<slot>); shape/cycle/phase live in the
+        // mount, min/max port literals coarsely override the mount's range,
+        // and the mod port's meaning is declared by the definition. State
+        // (phase) lives here, so re-mounting never jumps phase.
         if (!power) break;
         const key = `${x},${y}`;
+        this.touchedOps.add(key); // touch even when inert: phase survives
         let st = this.opState.get(key);
         if (!st || st.tag !== OP.LFO) {
-          st = { tag: OP.LFO, phase: 0, lastCC: null };
+          st = { tag: OP.LFO, phase: 0, lastCC: null, warpKey: null, warped: null };
           this.opState.set(key, st);
         }
-        this.touchedOps.add(key);
-        const lo = targetInternal(readLiteral(read(4, 0), 0));
-        const hi = targetInternal(readLiteral(read(3, 0), 35));
-        const off = offsetPhase(readLiteral(read(1, 0), 0));
+        const slotCell = read(2, 0);
+        if (getType(slotCell.flags) !== TYPE.LITERAL || !this.mounts) break;
+        const device = readLiteral(read(7, 0), 0);
+        const art = this.mounts.lookup('@', device, slotCell.letter);
+        if (!art || art.kind !== 'lfo') break; // inert: no mount here
+
+        const modCell = read(1, 0);
+        const modVal = getType(modCell.flags) === TYPE.LITERAL ? modCell.letter : null;
+        const modIs = (name) => art.mod?.name === name && modVal !== null;
+
+        // resolved range in CC floats: mount base <- port overrides <- mods
+        const minCell = read(4, 0);
+        const maxCell = read(3, 0);
+        let lo = getType(minCell.flags) === TYPE.LITERAL ? (minCell.letter * 127) / 35 : art.range[0];
+        let hi = getType(maxCell.flags) === TYPE.LITERAL ? (maxCell.letter * 127) / 35 : art.range[1];
+        if (modIs('depth')) {
+          const center = (lo + hi) / 2;
+          const half = ((hi - lo) / 2) * (modVal / 35);
+          lo = center - half;
+          hi = center + half;
+        } else if (modIs('offset')) {
+          const shift = ((modVal - 18) / 35) * 127;
+          lo += shift;
+          hi += shift;
+        }
+        lo = Math.max(0, Math.min(127, lo));
+        hi = Math.max(0, Math.min(127, hi));
+
+        // phase increment: cycle length from the mount, rate mod multiplies
+        let inc = 1 / art.cycleTicks;
+        if (modIs('rate')) {
+          const [rlo = 0.5, rhi = 2] = art.mod.args;
+          inc *= rlo * (rhi / rlo) ** (modVal / 35);
+        }
+        const readOff = art.phase0 + (modIs('phase') ? modVal / 36 : 0);
+
+        // shape table (skew mod warps it, memoized per mod value)
+        let table = art.table;
+        if (table && modIs('skew')) {
+          const wk = `${slotCell.letter}:${modVal}`;
+          if (st.warpKey !== wk) {
+            st.warpKey = wk;
+            st.warped = warpTable(table, modVal / 35);
+          }
+          table = st.warped;
+        }
+        const smooth = modIs('smooth') || modIs('spread') ? modVal / 35 : art.smooth;
+
         let pieces = null;
         let disc = false;
-        if (bang) {
+        let endV01;
+        if (bang && !art.sync) {
           st.phase = 0;
           disc = true;
+          endV01 = art.procedural
+            ? intHash(Math.floor(readOff * NOISE_STEPS))
+            : tableValue(table, readOff);
         } else {
-          const inc = lfoInc(readLiteral(read(2, 0), 8));
-          pieces = lfoPieces(st.phase + off, inc).map((p) => ({
-            ...p,
-            v0: scaleV(p.v0, lo, hi),
-            v1: scaleV(p.v1, lo, hi),
-          }));
-          st.phase = (st.phase + inc) % PHASE;
+          const start = art.sync ? (this.metronome * inc) % 1 : st.phase;
+          const a = start + readOff;
+          pieces = art.procedural
+            ? noisePieces(a, inc, smooth)
+            : tablePieces(table, a, inc);
+          endV01 = pieces.length
+            ? pieces[pieces.length - 1].v1
+            : art.procedural
+              ? intHash(Math.floor(a * NOISE_STEPS))
+              : tableValue(table, a);
+          if (!art.sync) st.phase = (st.phase + inc) % 1;
         }
-        const outV = scaleV(triAt(st.phase + off), lo, hi);
-        this.emitCC(
-          st,
-          {
-            device: readLiteral(read(7, 0), 0),
-            channel: readLiteral(read(6, 0), 0),
-            controllerCell: read(5, 0),
-          },
-          outV,
-          pieces,
-          disc,
-        );
+
+        const outV = valueToInternal(endV01, lo, hi);
+        // devices({n: null}) = black hole: bank exists, wire doesn't
+        const blackHole = this.mounts.deviceMap?.[device] === null;
+        if (!blackHole) {
+          this.emitCC(
+            st,
+            {
+              device,
+              channel: readLiteral(read(6, 0), 0),
+              controllerCell: read(5, 0),
+            },
+            outV,
+            pieces ? scalePieces(pieces, lo, hi) : null,
+            disc,
+          );
+        }
         const face = face1296(outV);
         write(0, 1, lit(Math.floor(face / 36)));
         write(1, 1, lit(face % 36));
