@@ -471,6 +471,8 @@ export class MountTable {
   constructor() {
     this.entries = new Map(); // '@a' | '@2a' -> artifact
     this.deviceMap = {}; // logical device -> output name (null = black hole)
+    this.bpm = null; // set by a bpm() statement; null = widget rules
+    this.gridSize = null; // set by grid(w, h); null = unchanged
     this.source = '';
     this.errors = [];
   }
@@ -507,6 +509,21 @@ export function evaluateMountDoc(source) {
       for (const [k, v] of Object.entries(map)) {
         table.deviceMap[k] = v === null ? null : unwrapToken(v);
       }
+    },
+    // patch-as-code initializers: applied by the host after a successful
+    // eval; the toolbar widgets remain live nudgers (statement wins at eval)
+    bpm: (n) => {
+      n = Number(unwrapToken(n));
+      if (!Number.isFinite(n) || n < 20 || n > 300) throw new Error(`bpm(${n}): expected 20..300`);
+      table.bpm = n;
+    },
+    grid: (w, h) => {
+      w = Math.round(Number(w));
+      h = Math.round(Number(h));
+      if (!(w >= 8 && w <= 128 && h >= 8 && h <= 64)) {
+        throw new Error(`grid(${w}, ${h}): expected 8..128 x 8..64`);
+      }
+      table.gridSize = { w, h };
     },
     mount: (ref, def) => {
       ref = unwrapToken(ref);

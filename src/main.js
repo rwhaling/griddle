@@ -1,12 +1,12 @@
 import { Machine } from './interpreter.js';
-import { PatternBank } from './patterns.js';
 import { Clock } from './clock.js';
 import { MidiOut, PreviewSynth } from './midi.js';
 import { GridUI } from './ui.js';
 import { MountEditor } from './editor.js';
 import { MountTable, tryEvaluate, DEFAULT_MOUNT_DOC } from './mounts.js';
+import { gridToRows, rowsToGrid, cellsToGrid, textualizeSlots } from './patchfile.js';
 import { DEMO } from './demo.js';
-import { charToCell, cellToChar, toB36Char, getType, TYPE } from './values.js';
+import { charToCell } from './values.js';
 
 const GRID_W = 64;
 const GRID_H = 32;
@@ -14,11 +14,9 @@ const MAX_W = 128;
 const MAX_H = 64;
 const STORAGE_KEY = 'griddle-state-v1';
 
-const bank = new PatternBank();
-const machine = new Machine(GRID_W, GRID_H, {
-  bang: (slot, pos) => bank.bang(slot, pos),
-  value: (slot, pos) => bank.value(slot, pos),
-});
+// patterns live in the mount document ($ mounts); the legacy slot-panel
+// adapter is gone — old patches migrate by textualization at load
+const machine = new Machine(GRID_W, GRID_H, null);
 const midi = new MidiOut();
 const synth = new PreviewSynth();
 
@@ -29,10 +27,6 @@ const playBtn = $('play');
 const bpmInput = $('bpm');
 const midiSelect = $('midi-out');
 const previewCheck = $('preview');
-const slotSelect = $('slot-select');
-const slotCode = $('slot-code');
-const slotSteps = $('slot-steps');
-const slotStatus = $('slot-status');
 const statusLine = $('status');
 const panicBtn = $('panic');
 const demoBtn = $('demo');
@@ -59,6 +53,20 @@ function evalMountSource(source, { flash = false } = {}) {
   machine.mounts = mounts;
   lastEvalSource = source;
   lastEvalError = result.error;
+  // patch-as-code initializers: bpm()/grid() statements apply on eval;
+  // the widgets remain live nudgers between evals
+  if (!result.error) {
+    if (mounts.bpm !== null) bpmInput.value = mounts.bpm;
+    if (mounts.gridSize) {
+      const { w, h } = mounts.gridSize;
+      if (w !== machine.width || h !== machine.height) {
+        machine.resize(w, h);
+        gridWInput.value = w;
+        gridHInput.value = h;
+        ui.clampCamera();
+      }
+    }
+  }
   if (flash) mountEditor.flash();
   renderMountBar();
 }
@@ -218,79 +226,17 @@ function refreshMidiOutputs() {
 
 midiSelect.addEventListener('change', () => midi.select(midiSelect.value));
 
-// ---- slot editor ----
-let currentSlot = 0;
-
-function initSlotSelect() {
-  for (let i = 0; i < 36; i++) {
-    const opt = document.createElement('option');
-    opt.value = i;
-    opt.textContent = toB36Char(i);
-    slotSelect.appendChild(opt);
-  }
-}
-
-function showSlot(i) {
-  currentSlot = i;
-  const slot = bank.slots[i];
-  slotSelect.value = i;
-  slotCode.value = slot.code;
-  slotSteps.value = slot.stepsOverride ?? '';
-  updateSlotStatus();
-}
-
-function updateSlotStatus() {
-  const slot = bank.slots[currentSlot];
-  if (slot.error) {
-    slotStatus.textContent = `✗ ${slot.error}`;
-    slotStatus.className = 'error';
-  } else if (slot.pattern) {
-    slotStatus.textContent = `✓ steps: ${bank.steps(currentSlot)}${slot.stepsOverride ? ' (override)' : ' (auto)'}`;
-    slotStatus.className = 'ok';
-  } else {
-    slotStatus.textContent = 'empty';
-    slotStatus.className = '';
-  }
-}
-
-function applySlotEdit() {
-  const steps = slotSteps.value.trim() === '' ? null : Math.max(1, Number(slotSteps.value));
-  bank.setSlot(currentSlot, slotCode.value, Number.isFinite(steps) ? steps : null);
-  updateSlotStatus();
-  saveState();
-}
-
-let slotDebounce = null;
-const debouncedApply = () => {
-  clearTimeout(slotDebounce);
-  slotDebounce = setTimeout(applySlotEdit, 300);
-};
-slotCode.addEventListener('input', debouncedApply);
-slotSteps.addEventListener('input', debouncedApply);
-slotSelect.addEventListener('change', () => showSlot(Number(slotSelect.value)));
-
 // ---- persistence ----
-function serializeGrid() {
-  const cells = [];
-  const grid = machine.grid;
-  for (let y = 0; y < machine.height; y++) {
-    for (let x = 0; x < machine.width; x++) {
-      const cell = grid.get(x, y);
-      if (getType(cell.flags) === TYPE.NONE) continue;
-      cells.push([x, y, cellToChar(cell.flags, cell.letter), cell.flags]);
-    }
-  }
-  return cells;
-}
 
 function buildState() {
+  const { rows, cellFlags } = gridToRows(machine);
   return {
-    version: 1,
+    version: 2,
     size: { w: machine.width, h: machine.height },
     bpm: Number(bpmInput.value) || 120,
-    cells: serializeGrid(),
+    rows,
+    cellFlags,
     wires: machine.allWires().map(({ from, to }) => [from.x, from.y, to.x, to.y]),
-    slots: bank.slots.map((s) => ({ code: s.code, steps: s.stepsOverride })),
     mount: mountEditor.getSource().split('\n'),
   };
 }
@@ -303,22 +249,25 @@ function applyState(state) {
   if (w !== machine.width || h !== machine.height) machine.resize(w, h);
   gridWInput.value = machine.width;
   gridHInput.value = machine.height;
-  for (const [x, y, char, flags] of state.cells) {
-    const cell = charToCell(char);
-    if (cell) machine.grid.set(x, y, { flags: flags ?? cell.flags, letter: cell.letter });
-  }
+  // v2: rows + cellFlags sidecar; older saves: cells array
+  if (state.rows) rowsToGrid(machine, state.rows, state.cellFlags ?? []);
+  else if (state.cells) cellsToGrid(machine, state.cells);
   for (const [fx, fy, tx, ty] of state.wires ?? []) {
     machine.ensureWire({ x: fx, y: fy }, { x: tx, y: ty });
   }
-  for (let i = 0; i < 36; i++) bank.setSlot(i, '');
-  state.slots?.forEach((s, i) => {
-    if (s.code) bank.setSlot(i, s.code, s.steps ?? null);
-  });
-  showSlot(currentSlot);
-  // v1 patches have no mount field: PRESERVE whatever is currently mounted
-  // rather than wiping the bank the user may have just evaluated
-  if (state.mount !== undefined) {
-    const mountSource = Array.isArray(state.mount) ? state.mount.join('\n') : (state.mount ?? '');
+  // legacy slot-panel patterns migrate into the mount document
+  const migrated = textualizeSlots(state.slots);
+  let mountSource =
+    state.mount !== undefined
+      ? Array.isArray(state.mount)
+        ? state.mount.join('\n')
+        : (state.mount ?? '')
+      : null;
+  if (migrated.length) {
+    mountSource = `${mountSource ?? DEFAULT_MOUNT_DOC}\n${migrated.join('\n')}\n`;
+    statusLine.textContent = `migrated ${migrated.length - 1} legacy slot(s) into the mount doc`;
+  }
+  if (mountSource !== null) {
     mountEditor.setSource(mountSource);
     if (mountSource.trim()) {
       evalMountSource(mountSource);
@@ -330,6 +279,7 @@ function applyState(state) {
       renderMountBar();
     }
   }
+  // state.mount undefined AND no slots: preserve current mounts (old fix)
 }
 
 function saveState() {
@@ -406,10 +356,6 @@ function clearGrid() {
 function loadDemo() {
   clearGrid();
   bpmInput.value = DEMO.bpm;
-  for (let i = 0; i < 36; i++) bank.setSlot(i, '');
-  for (const [key, { code, steps }] of Object.entries(DEMO.slots)) {
-    bank.setSlot(Number(key), code, steps);
-  }
   DEMO.rows.forEach((row, dy) => {
     [...row].forEach((char, dx) => {
       if (char === '.') return;
@@ -430,7 +376,6 @@ function loadDemo() {
     `\n// demo overrides\n$0: pat('x(5,8)').gsteps(8)\n$1: "0 2 4 <7 9> 4 2"\n`;
   mountEditor.setSource(demoMounts);
   evalMountSource(demoMounts);
-  showSlot(0);
   saveState();
 }
 
@@ -454,7 +399,6 @@ function frame() {
 }
 
 // ---- boot ----
-initSlotSelect();
 if (!loadState()) loadDemo();
 // seed empty mount editors with the default document (defaults are code:
 // visible, editable, erasable — never hidden engine behavior)
@@ -464,6 +408,5 @@ if (!mountEditor.getSource().trim()) {
 }
 gridWInput.value = machine.width;
 gridHInput.value = machine.height;
-showSlot(0);
 initMidi();
 frame();
