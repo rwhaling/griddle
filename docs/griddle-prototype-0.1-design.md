@@ -255,6 +255,18 @@ file) or live MIDI input. Keep this boundary legible — it's a feature.
   toggle to remove, direction normalized to reading order, operator writes
   propagate transitively (movement/INTERFERE writes do not). The demo now routes
   V→N over a wire instead of an H hop.
+- **Bang evaporation (designed 2026-07-26, deferred by user — adopt at a
+  quiet moment between songs)**: replace CLAVIER's bangs-persist-until-
+  overwritten with Orca's write→act→evaporate lifetime, via flags bit 7 as
+  an age mark cleared at eval start (lifetime: rest of the writing tick +
+  all of the next tick, then gone). Fixes the stale-bang class entirely
+  (frozen/muted/deleted producers can no longer leave eternal triggers —
+  the exact failure mode hit while porting a CLAVIER drum pattern);
+  hand-placed `!` becomes a one-shot trigger. Does NOT fix self-adjacency
+  re-emission loops (Orca has the same; `&`-gating remains the idiom).
+  Breaking: persistent hand-`!` as constant trigger — use the power flag
+  instead. ~15 lines + a careful pass over tests that implicitly assert
+  bang persistence.
 - **Rejected for 0.1**: rate-port design (implicit metronome inside U/V, cycle =
   rate ticks). Superseded by explicit position — kept here for the record because it
   may return as a separate convenience operator.
