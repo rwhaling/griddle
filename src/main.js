@@ -4,7 +4,7 @@ import { Clock } from './clock.js';
 import { MidiOut, PreviewSynth } from './midi.js';
 import { GridUI } from './ui.js';
 import { MountEditor } from './editor.js';
-import { MountTable, tryEvaluate } from './mounts.js';
+import { MountTable, tryEvaluate, DEFAULT_MOUNT_DOC } from './mounts.js';
 import { DEMO } from './demo.js';
 import { charToCell, cellToChar, toB36Char, getType, TYPE } from './values.js';
 
@@ -279,17 +279,21 @@ function applyState(state) {
     if (s.code) bank.setSlot(i, s.code, s.steps ?? null);
   });
   showSlot(currentSlot);
-  const mountSource = Array.isArray(state.mount) ? state.mount.join('\n') : (state.mount ?? '');
-  mountEditor.setSource(mountSource);
-  if (mountSource.trim()) {
-    const result = tryEvaluate(mountSource, mounts);
-    mounts = result.table;
-    machine.mounts = mounts;
-    renderMountBar(result.error);
-  } else {
-    mounts = new MountTable();
-    machine.mounts = mounts;
-    renderMountBar(null);
+  // v1 patches have no mount field: PRESERVE whatever is currently mounted
+  // rather than wiping the bank the user may have just evaluated
+  if (state.mount !== undefined) {
+    const mountSource = Array.isArray(state.mount) ? state.mount.join('\n') : (state.mount ?? '');
+    mountEditor.setSource(mountSource);
+    if (mountSource.trim()) {
+      const result = tryEvaluate(mountSource, mounts);
+      mounts = result.table;
+      machine.mounts = mounts;
+      renderMountBar(result.error);
+    } else {
+      mounts = new MountTable();
+      machine.mounts = mounts;
+      renderMountBar(null);
+    }
   }
 }
 
@@ -410,6 +414,15 @@ function frame() {
 // ---- boot ----
 initSlotSelect();
 if (!loadState()) loadDemo();
+// seed empty mount editors with the default document (defaults are code:
+// visible, editable, erasable — never hidden engine behavior)
+if (!mountEditor.getSource().trim()) {
+  mountEditor.setSource(DEFAULT_MOUNT_DOC);
+  const seeded = tryEvaluate(DEFAULT_MOUNT_DOC, mounts);
+  mounts = seeded.table;
+  machine.mounts = mounts;
+  renderMountBar(seeded.error);
+}
 gridWInput.value = machine.width;
 gridHInput.value = machine.height;
 showSlot(0);

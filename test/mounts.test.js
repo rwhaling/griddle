@@ -153,3 +153,15 @@ describe('shape compilation', () => {
     expect(error).toMatch(/unknown mod/);
   });
 });
+
+describe('default mount document', () => {
+  it('mounts all 36 slots as a coarse frequency knob on the old curve', async () => {
+    const { DEFAULT_MOUNT_DOC } = await import('../src/mounts.js');
+    const table = evaluateMountDoc(DEFAULT_MOUNT_DOC);
+    expect(table.entries.size).toBe(36);
+    expect(table.entries.get('@8').cycleTicks).toBe(256); // old rate 8
+    expect(table.entries.get('@1').cycleTicks).toBe(4); // old rate 1: one beat
+    expect(table.entries.get('@0').cycleTicks).toBe(4 * 36 * 36); // map_zero
+    expect(table.entries.get('@z').cycleTicks).toBe(4 * 35 * 35);
+  });
+});

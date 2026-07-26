@@ -281,6 +281,21 @@ export function evaluateMountDoc(source) {
   return table;
 }
 
+// The default mount document, seeded into empty patches: every slot 0-z is
+// mounted, so the F slot port acts as a coarse frequency knob following the
+// pre-mount quadratic curve (period 4·r² ticks; slot 0 = slowest, per
+// CLAVIER's map_zero convention). Later statements override earlier ones, so
+// per-slot customizations go below the loop. Defaults are code, not magic.
+export const DEFAULT_MOUNT_DOC = `// griddle mounts — edit freely, ⌘↵ to apply (later lines override earlier)
+// slot glyph = coarse rate knob: period 4·r² ticks (slot 0 = slowest)
+"0123456789abcdefghijklmnopqrstuvwxyz".split("").forEach((ch, r) =>
+  mount("@" + ch, lfo(tri).cycle((4 * (r === 0 ? 36 : r) ** 2) + "t")))
+
+// per-slot overrides go here, e.g.:
+// @p: lfo(tri).cycle("196t").phase(0.42)
+// @n: lfo(noise).cycle("2bar").smooth(0.5)
+`;
+
 // convenience: evaluate with last-good retention + error capture
 export function tryEvaluate(source, previous) {
   try {
