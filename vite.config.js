@@ -21,6 +21,18 @@ export default defineConfig({
         find: 'fraction.js',
         replacement: fileURLToPath(new URL('./node_modules/fraction.js/dist/fraction.mjs', import.meta.url)),
       },
+      {
+        find: /^acorn$/,
+        replacement: fileURLToPath(new URL('./node_modules/acorn/dist/acorn.mjs', import.meta.url)),
+      },
+      {
+        find: /^escodegen$/,
+        replacement: fileURLToPath(new URL('./node_modules/escodegen/escodegen.js', import.meta.url)),
+      },
+      {
+        find: /^estree-walker$/,
+        replacement: fileURLToPath(new URL('./node_modules/estree-walker/src/index.js', import.meta.url)),
+      },
     ],
   },
   test: {

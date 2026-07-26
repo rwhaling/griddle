@@ -3,6 +3,8 @@ import { PatternBank } from './patterns.js';
 import { Clock } from './clock.js';
 import { MidiOut, PreviewSynth } from './midi.js';
 import { GridUI } from './ui.js';
+import { MountEditor } from './editor.js';
+import { MountTable, tryEvaluate } from './mounts.js';
 import { DEMO } from './demo.js';
 import { charToCell, cellToChar, toB36Char, getType, TYPE } from './values.js';
 
@@ -41,6 +43,44 @@ const savePatchBtn = $('save-patch');
 const loadPatchInput = $('load-patch');
 
 const ui = new GridUI(canvas, machine, { onEdit: saveState });
+
+// ---- mount document (docs six/seven; LFO-only until doc seven phase 3) ----
+const mountPane = $('mount-pane');
+const mountBar = $('mount-bar');
+let mounts = new MountTable();
+
+const mountEditor = new MountEditor($('mount-editor'), {
+  onEval: (source) => {
+    const result = tryEvaluate(source, mounts);
+    mounts = result.table;
+    machine.mounts = mounts; // consumed by F once step 2 lands
+    renderMountBar(result.error);
+    saveState();
+  },
+  onExit: () => canvas.focus(),
+});
+
+function renderMountBar(error) {
+  if (error) {
+    mountBar.innerHTML = `<span class="err">✗ ${error.replace(/</g, '&lt;')}</span>`;
+    return;
+  }
+  const refs = [...mounts.entries.keys()].sort();
+  const devs = Object.keys(mounts.deviceMap).length;
+  mountBar.innerHTML = refs.length
+    ? `<span class="ok">✓</span> ${refs.map((r) => `<span class="ref">${r}</span>`).join('')}` +
+      (devs ? ` · ${devs} device${devs > 1 ? 's' : ''}` : '')
+    : 'mounts: none — ⌘↵ to evaluate';
+}
+
+function toggleMountPane(show) {
+  const hidden = mountPane.classList.contains('hidden');
+  const next = show ?? hidden;
+  mountPane.classList.toggle('hidden', !next);
+  ui.resizeCanvas();
+  if (next) mountEditor.focus();
+  else canvas.focus();
+}
 
 // ---- transport ----
 let playing = false;
@@ -93,9 +133,17 @@ playBtn.addEventListener('click', () => setPlaying(!playing));
 panicBtn.addEventListener('click', () => midi.allNotesOff());
 
 document.addEventListener('keydown', (e) => {
+  // ⌘E toggles the mount editor from anywhere
+  if (e.key === 'e' && (e.metaKey || e.ctrlKey)) {
+    toggleMountPane();
+    e.preventDefault();
+    return;
+  }
   // any focused form control owns the keyboard; the grid only listens
-  // when focus is on the canvas/body (click the grid to reclaim it)
+  // when focus is on the canvas/body. The CM6 editor is a contenteditable
+  // div, so check for it explicitly (its own keymap consumes ⌘↵/Escape).
   if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+  if (e.target.closest?.('.cm-editor')) return;
   if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
     setPlaying(!playing);
     e.preventDefault();
@@ -207,6 +255,7 @@ function buildState() {
     cells: serializeGrid(),
     wires: machine.allWires().map(({ from, to }) => [from.x, from.y, to.x, to.y]),
     slots: bank.slots.map((s) => ({ code: s.code, steps: s.stepsOverride })),
+    mount: mountEditor.getSource().split('\n'),
   };
 }
 
@@ -230,6 +279,18 @@ function applyState(state) {
     if (s.code) bank.setSlot(i, s.code, s.steps ?? null);
   });
   showSlot(currentSlot);
+  const mountSource = Array.isArray(state.mount) ? state.mount.join('\n') : (state.mount ?? '');
+  mountEditor.setSource(mountSource);
+  if (mountSource.trim()) {
+    const result = tryEvaluate(mountSource, mounts);
+    mounts = result.table;
+    machine.mounts = mounts;
+    renderMountBar(result.error);
+  } else {
+    mounts = new MountTable();
+    machine.mounts = mounts;
+    renderMountBar(null);
+  }
 }
 
 function saveState() {

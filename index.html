@@ -48,6 +48,19 @@
     #status { color: #8a8f9a; }
     #main { flex: 1; overflow: hidden; }
     #grid { display: block; image-rendering: auto; }
+    #mount-pane {
+      width: 380px; display: flex; flex-direction: column;
+      border-left: 1px solid #26282f; background: #14151a;
+    }
+    #mount-pane.hidden { display: none; }
+    #mount-editor { flex: 1; overflow: auto; }
+    #mount-bar {
+      padding: 6px 10px; border-top: 1px solid #26282f;
+      font-size: 12px; color: #8a8f9a; min-height: 30px;
+    }
+    #mount-bar .err { color: #e07a7a; }
+    #mount-bar .ok { color: #7fd4a8; }
+    #mount-bar .ref { color: #7fd4a8; margin-right: 8px; }
     .file-label { display: inline-block; }
     .file-label input { display: none; }
     .help { color: #5a5f6a; line-height: 1.6; }
@@ -119,7 +132,8 @@
         <b>⌘C/X/V</b> copy/cut/paste (cells + wires)<br/>
         <b>#</b> mute/unmute selection (comment out)<br/>
         <b>⌥arrows</b> leap ×8 · <b>[ ]</b> zoom · cursor auto-pans<br/>
-        <b>⌘↵</b> play/stop · <b>esc</b> collapse selection
+        <b>⌘E</b> mount editor · <b>⌘↵</b> in editor = eval, on grid = play<br/>
+        <b>esc</b> in editor = back to grid; on grid = collapse selection
       </div>
     </div>
 
@@ -127,6 +141,10 @@
   </div>
   <div id="main">
     <canvas id="grid"></canvas>
+  </div>
+  <div id="mount-pane" class="hidden">
+    <div id="mount-editor"></div>
+    <div id="mount-bar">mounts: none — ⌘↵ to evaluate</div>
   </div>
   <script type="module" src="/src/main.js"></script>
 </body>
