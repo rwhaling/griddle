@@ -1,9 +1,16 @@
 {
   "devDependencies": {
+    "@codemirror/lang-javascript": "^6.2.5",
+    "@codemirror/state": "^6.7.1",
+    "@codemirror/view": "^6.43.6",
+    "codemirror": "^6.0.2",
     "vite": "^8.0.16",
     "vitest": "^4.1.8"
   },
   "dependencies": {
+    "acorn": "^8.17.0",
+    "escodegen": "^2.1.0",
+    "estree-walker": "^3.0.3",
     "fraction.js": "^5.3.4"
   },
   "name": "griddle",
