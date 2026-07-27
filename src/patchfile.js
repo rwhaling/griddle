@@ -55,6 +55,12 @@ export function cellsToGrid(machine, cells) {
   }
 }
 
+// does this parsed JSON look like a griddle patch of any vintage?
+// v2 has rows; v1 and the hybrid era have cells
+export function looksLikePatch(state) {
+  return !!state && typeof state === 'object' && (Array.isArray(state.rows) || Array.isArray(state.cells));
+}
+
 // legacy slot-panel patterns -> mount-document lines (slot-panel retirement:
 // old patches migrate by textualization at load)
 export function textualizeSlots(slots) {

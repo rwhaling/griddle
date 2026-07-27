@@ -73,3 +73,14 @@ describe('bpm()/grid() mount statements', () => {
     expect(bad).toThrow(/expected 20..300/);
   });
 });
+
+describe('import validation (looksLikePatch)', () => {
+  it('accepts v2 (rows), v1/hybrid (cells), rejects everything else', async () => {
+    const { looksLikePatch } = await import('../src/patchfile.js');
+    expect(looksLikePatch({ version: 2, rows: ['..'], mount: [] })).toBe(true);
+    expect(looksLikePatch({ version: 1, cells: [[1, 1, 'C', 35]] })).toBe(true);
+    expect(looksLikePatch({ some: 'json' })).toBe(false);
+    expect(looksLikePatch(null)).toBe(false);
+    expect(looksLikePatch([1, 2, 3])).toBe(false);
+  });
+});

@@ -4,7 +4,7 @@ import { MidiOut, PreviewSynth } from './midi.js';
 import { GridUI } from './ui.js';
 import { MountEditor } from './editor.js';
 import { MountTable, tryEvaluate, DEFAULT_MOUNT_DOC } from './mounts.js';
-import { gridToRows, rowsToGrid, cellsToGrid, textualizeSlots } from './patchfile.js';
+import { gridToRows, rowsToGrid, cellsToGrid, textualizeSlots, looksLikePatch } from './patchfile.js';
 import { describeAt } from './ports.js';
 import { DEMO } from './demo.js';
 import { charToCell } from './values.js';
@@ -351,7 +351,7 @@ function exportPatch() {
 async function importPatch(file) {
   try {
     const state = JSON.parse(await file.text());
-    if (!Array.isArray(state.cells)) throw new Error('not a griddle patch');
+    if (!looksLikePatch(state)) throw new Error('not a griddle patch (no rows or cells)');
     applyState(state);
     saveState();
     statusLine.textContent = `loaded ${file.name}`;
