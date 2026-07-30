@@ -228,6 +228,13 @@ file) or live MIDI input. Keep this boundary legible — it's a feature.
 > is designed in `griddle-pattern-mounts-design.md` — resolves doc six §9;
 > implement with/after doc six.
 >
+> 2026-07-30: native CLAP plugin hosting (a standalone daemon as a second
+> renderer of the bridge protocol; sample-accurate PARAM_MOD events, F's
+> resolution ladder topped out; definition handoff with accumulator-anchored
+> phase, per the poptart study) is designed in
+> `griddle-clap-daemon-design.md` — spike required before building; no
+> implementation commitment.
+>
 > 2026-07-26: docs six AND seven core IMPLEMENTED (101 tests): mount
 > document + CM6 pane, mount-driven F, $ patterns + mounted U/V with MIDI
 > face, default tables as code. Pending: doc seven §7 UI pass
@@ -260,13 +267,21 @@ file) or live MIDI input. Keep this boundary legible — it's a feature.
   overwritten with Orca's write→act→evaporate lifetime, via flags bit 7 as
   an age mark cleared at eval start (lifetime: rest of the writing tick +
   all of the next tick, then gone). Fixes the stale-bang class entirely
-  (frozen/muted/deleted producers can no longer leave eternal triggers —
-  the exact failure mode hit while porting a CLAVIER drum pattern);
+  (frozen/muted/deleted producers can no longer leave eternal triggers);
   hand-placed `!` becomes a one-shot trigger. Does NOT fix self-adjacency
   re-emission loops (Orca has the same; `&`-gating remains the idiom).
   Breaking: persistent hand-`!` as constant trigger — use the power flag
   instead. ~15 lines + a careful pass over tests that implicitly assert
-  bang persistence.
+  bang persistence. Correction 2026-07-28 (code-verified both
+  interpreters): griddle's bang/unpowered-op semantics are IDENTICAL to
+  CLAVIER's — P writes bang-or-NONE every evaluation and self-cleans via
+  its own south bang re-triggering it; the drum-port misfire was the
+  rate·mod = 1 latch (`1.P` self-sustains once banged, in both systems),
+  not a semantic divergence. Evaporation remains a real design option (it
+  kills the latch and the muted-producer case, both griddle-only hazards
+  worth weighing against `1.P`-as-a-feature), but it is not fixing a
+  CLAVIER-compat bug. Saved patches may contain load-bearing hand-placed
+  `!` cells — evaporation would break them; audit before adopting.
 - **Rejected for 0.1**: rate-port design (implicit metronome inside U/V, cycle =
   rate ticks). Superseded by explicit position — kept here for the record because it
   may return as a separate convenience operator.
