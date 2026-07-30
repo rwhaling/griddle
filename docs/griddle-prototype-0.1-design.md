@@ -235,6 +235,13 @@ file) or live MIDI input. Keep this boundary legible — it's a feature.
 > `griddle-clap-daemon-design.md` — spike required before building; no
 > implementation commitment.
 >
+> 2026-07-30: synth mounts (superdough as renderer #0: synth definitions
+> in the device table, channel-qualified `dev.ch ?? dev`, channel as
+> timbre selector; v1 = static objects + functions `(note, vel, dur)`,
+> pattern fields deferred-and-documented; supersedes PreviewSynth
+> entirely; 16-sound default bank) is designed in
+> `griddle-synth-mounts-design.md` — not yet implemented.
+>
 > 2026-07-26: docs six AND seven core IMPLEMENTED (101 tests): mount
 > document + CM6 pane, mount-driven F, $ patterns + mounted U/V with MIDI
 > face, default tables as code. Pending: doc seven §7 UI pass
