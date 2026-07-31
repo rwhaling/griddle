@@ -167,8 +167,15 @@ two-cell edit.
   (control objects with `.note` pass through; bare numbers → mount
   `.base()` + value), velocity from hap or mount `.vel()`, duration from
   `whole`, channel from the port; note-offs via the existing timestamped
-  scheduler. U emits fixed-note triggers (`.note(36)` in the mount; no
-  `.note()` → U's face is silent).
+  scheduler. U emits fixed-note triggers: `.note(36)` in the mount, or —
+  **revised 2026-07-31** — falling back to `base` (48, moved by
+  `.oct()`/`.base()`) when `.note()` is absent. The original no-`.note()`
+  → silent rule was a second, accidental gate on a face whose one
+  deliberate gate is the channel cell; its failure mode read as a broken
+  patch (hit in practice mounting a bare euclid U to a synth drum). With
+  the fallback, bare U works everywhere, V/U become symmetric (V = base +
+  value, U = base), and pitch-responsive drum defs (doc nine functions
+  receive the note) get real data instead of boilerplate.
 
 ## 5. Backward compatibility (a theorem, not a hope)
 
@@ -201,7 +208,7 @@ auto-wrapped; curated core combinators available including strudel's own
 | `.gsteps(8)` | addressing-granularity override (positional mounts) | auto from `_steps` |
 | `.base(48)` / `.oct(4)` | numeric hap → MIDI note = base + value | base 48 |
 | `.vel(90)` | default velocity (hap controls override) | 96 |
-| `.note(36)` | U's MIDI-face fixed note | none |
+| `.note(36)` | U's MIDI-face fixed note | base (48; was silent — revised 2026-07-31) |
 | `.mod(name, ...)` | drive-port meaning: `'rate'` (multiplier lo..hi), `'phase'`, `'transpose', lo, hi`, `'degrade'`, `'velocity'` | port ignored |
 | `.sync()` | transport-anchored phase (open, §9.2) | free-running |
 

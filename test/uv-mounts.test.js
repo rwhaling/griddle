@@ -165,6 +165,37 @@ describe('rate-driven pattern mounts (quadrant ③/④)', () => {
   });
 });
 
+describe('U trigger note defaults to base (2026-07-31)', () => {
+  it('bare U on a euclid emits at base 48 — no .note() boilerplate', () => {
+    const m = uvMachine(`$a: pat('x(5,8)').gsteps(8)`, 'U', { ch: '1', drive: '0' });
+    m.step();
+    expect(m.noteEvents.length).toBe(1);
+    expect(m.noteEvents[0].note).toBe(48);
+  });
+
+  it('.oct() moves the default; .note() still wins outright', () => {
+    const o = uvMachine(`$a: pat('x(5,8)').gsteps(8).oct(5)`, 'U', { ch: '1', drive: '0' });
+    o.step();
+    expect(o.noteEvents[0].note).toBe(60);
+    const n = uvMachine(`$a: pat('x(5,8)').gsteps(8).note(37)`, 'U', { ch: '1', drive: '0' });
+    n.step();
+    expect(n.noteEvents[0].note).toBe(37);
+  });
+
+  it('the channel cell remains the one gate: no literal, no MIDI face', () => {
+    const m = uvMachine(`$a: pat('x(5,8)').gsteps(8)`, 'U', { drive: '0' });
+    m.step();
+    expect(m.noteEvents.length).toBe(0);
+  });
+
+  it('default euclid table now drives a U MIDI face out of the box', () => {
+    const m = uvMachine(DEFAULT_MOUNT_DOC, 'U', { slot: '3', ch: '1', drive: '0' });
+    m.step();
+    expect(m.noteEvents.length).toBe(1);
+    expect(m.noteEvents[0].note).toBe(48);
+  });
+});
+
 describe('defaults and demo', () => {
   it('default doc mounts 36 LFOs and 36 euclid patterns', () => {
     const table = evaluateMountDoc(DEFAULT_MOUNT_DOC);

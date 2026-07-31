@@ -742,7 +742,10 @@ export class Machine {
               const h = intHash(Math.round((this.metronome + onset.frac) * 46656));
               if (h < modVal / 35) continue;
             }
-            let note = isV ? noteFromValue(onset.value, art) : art.note;
+            // U triggers at .note() ?? base (2026-07-31): the channel cell is
+            // the one opt-in gate; an undeclared note means base (48, moved
+            // by .oct()/.base()), not silence. V stays value-pitched.
+            let note = isV ? noteFromValue(onset.value, art) : (art.note ?? art.base);
             if (note === null || note === undefined) continue;
             if (modIs('transpose')) {
               const [tlo = -12, thi = 12] = art.mod.args;
