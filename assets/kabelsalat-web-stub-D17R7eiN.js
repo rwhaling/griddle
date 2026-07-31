@@ -1,0 +1,1 @@
+var e=class{constructor(){throw Error(`kabelsalat is not available in griddle (stubbed out)`)}};export{e as SalatRepl};
