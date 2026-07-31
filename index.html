@@ -53,8 +53,12 @@
        layouts later are a flex-direction away) ---- */
     #workspace { flex: 1; display: flex; overflow: hidden; }
     #workspace.layout-right { flex-direction: row; }
-    #main { flex: 1; overflow: hidden; }
-    #grid { display: block; image-rendering: auto; }
+    #main { flex: 1; overflow: hidden; position: relative; }
+    #grid { display: block; image-rendering: auto; position: relative; z-index: 1; }
+    /* visuals (doc ten): hydra canvas beneath; the grid canvas stays on top
+       at opacity 0 so hit-testing (mouse/keys) is untouched */
+    #grid.visuals-under { opacity: 0; }
+    #hydra-canvas { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; }
 
     #mount-pane {
       width: 380px; display: flex; flex-direction: column;
@@ -78,6 +82,10 @@
     #ref-view h3 { font-size: 12px; color: #e8e3d0; margin: 12px 0 4px; }
     #mount-pane.show-ref #mount-editor { display: none; }
     #mount-pane.show-ref #ref-view { display: block; }
+    #visuals-editor { flex: 1; overflow: auto; display: none; }
+    #mount-pane.show-visuals #mount-editor { display: none; }
+    #mount-pane.show-visuals #visuals-editor { display: block; }
+    #visuals-bypass.active { color: #e8c86a; border-color: #e8c86a; }
     #mount-bar {
       padding: 6px 10px; border-top: 1px solid #26282f;
       font-size: 12px; color: #8a8f9a; min-height: 30px;
@@ -105,7 +113,7 @@
     #midi-ports .port { color: #8a8f9a; }
     #midi-ports button { padding: 1px 6px; font-size: 10px; }
   </style>
-  <script type="module" crossorigin src="./assets/index-LKlZRH3y.js"></script>
+  <script type="module" crossorigin src="./assets/index-WNzOtrN2.js"></script>
 </head>
 <body>
   <div id="toolbar">
@@ -137,11 +145,14 @@
     <div id="mount-pane" class="hidden">
       <div id="mount-tools">
         <button class="tab active" id="tab-code">code</button>
+        <button class="tab" id="tab-visuals">visuals</button>
         <button class="tab" id="tab-ref">ref</button>
         <button id="mount-defaults">insert defaults</button>
+        <button id="visuals-bypass" title="bypass visuals (grid stays raw)">fx</button>
         <span>⌘↵ eval · "mini" · 'plain'</span>
       </div>
       <div id="mount-editor"></div>
+      <div id="visuals-editor"></div>
       <div id="ref-view">
         <h3>operators — read west, write south</h3>
         <b>U</b> dev,ch,slot,drive → bang / note triggers<br/>
