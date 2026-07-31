@@ -10,9 +10,9 @@ instrument. Supersedes the `PreviewSynth` demo voice entirely.*
 
 Status: **designed (2026-07-30), not implemented.** Scope decision by user:
 v1 ships **static controls objects and functions returning static objects**;
-pattern-valued ("field") definitions are deferred but fully sketched in §9.1
-so the resolution chain is future-compatible. Open questions in §10 — ask
-before deciding in code. Implementation note (user): start testing against
+pattern-valued ("field") definitions are deferred but fully sketched in
+§10.1 so the resolution chain is future-compatible. Open questions in §11 —
+ask before deciding in code. Implementation note (user): start testing against
 one or two simple sounds; build the §7 sixteen-sound bank after the
 mechanism is proven.
 
@@ -86,7 +86,7 @@ devices({
 - **Orbit = device (working default)**: all channels of a synth device
   share one superdough orbit (effects bus) — a kit shares its room, a
   device is a mixer-bus concept. Overridable per definition with an
-  explicit `orbit` control. (§10.3)
+  explicit `orbit` control. (§11.3)
 
 ## 4. Definitions and the resolution chain
 
@@ -98,7 +98,7 @@ object is the degenerate case of both.
 
 **v1 ships the strike-indexed axis** (user decision, 2026-07-30): a
 definition is a **controls object** or a **function returning a controls
-object**. The time-indexed axis (pattern fields) is deferred to §9.1 —
+object**. The time-indexed axis (pattern fields) is deferred to §10.1 —
 deferred, not rejected: static ≡ constant pattern, so fields slot into the
 chain later without breaking anything.
 
@@ -124,7 +124,7 @@ stays quiet under full velocity).
   exist, no new grid syntax. Channel is *not* an argument for
   channel-qualified definitions (the channel already did its work selecting
   the def). Whether a device-level definition receives channel (one
-  function handling all sixteen) is §10.4.
+  function handling all sixteen) is §11.4.
 - **Query-time purity required** — the function runs at strike time, on
   the pure side of the two-phase eval contract (mount-time impurity is a
   livecoding gesture; query-time purity is the invariant). All arguments
@@ -133,7 +133,7 @@ stays quiet under full velocity).
   enforced — same posture as mounted patterns.
 - **Time stays out of the arguments** (design refusal, recorded): no tick
   or position parameter. If timbre should vary with time, that is the
-  pattern-field axis (§9.1) — functions index strikes, fields index time;
+  pattern-field axis (§10.1) — functions index strikes, fields index time;
   one time-access idiom, not two.
 
 ## 6. Grid idioms (worked, from the design discussion)
@@ -155,13 +155,13 @@ stays quiet under full velocity).
 ## 7. The default bank: sixteen sounds
 
 Per defaults-as-code, `DEFAULT_MOUNT_DOC` mounts a sixteen-sound bank on
-one synth device (index: §10.5) covering the demo and cold-start
+one synth device (index: §11.5) covering the demo and cold-start
 experience — channels 0–f, one device, a playable kit + tonal spread.
 Sketch (contents are a taste pass for the user, not final):
 
 | ch | sketch |
 |---|---|
-| 0–3 | kick (`sbd`), hat (filtered `white`), snare (`crackle`, reactive), clap-ish noise |
+| 0–3 | kick (`sbd`, `duckorbit` → pad device: free sidechain pumping, §8), hat (filtered `white`), snare (`crackle`, reactive), clap-ish noise |
 | 4–7 | bass: dark saw (keytracked lpf), acid saw (velocity-reactive, function), sub sine, square pluck |
 | 8–b | leads: supersaw (unison/spread), pulse (pwm), wavetable + warp, FM-ish sine stack |
 | c–f | pads/texture: slow-attack supersaw + room, triangle pad, noise wash, bytebeat curio |
@@ -170,7 +170,54 @@ Implementation order (user decision): **prove the mechanism on one or two
 simple sounds first**; author the full bank as a later polish pass. The
 bank doubles as the living documentation of the definition vocabulary.
 
-## 8. Integration and vendoring plan
+## 8. Effects and the master bus (added 2026-07-30)
+
+Everything asked of the effects story — delay, reverb, saturation,
+limiting, summing to one stereo bus — is preexisting superdough parts,
+except a master limiter, which is one insertion of superdough's own
+pooled compressor helper.
+
+**Per orbit** (shared bus per synth device, lazily built — `Orbit`,
+`superdoughoutput.mjs:19-130`), all driven by keys the definitions
+already carry:
+
+- **Feedback delay**: per-voice `delay` is the send; `delaytime` /
+  `delayfeedback` configure the shared node; **`delaysync` gives
+  tempo-synced delay** (needs cps plumbed into the `superdough()` call —
+  §11.9).
+- **Reverb**: `room` (send) + `roomsize`/`roomfade`/`roomlp`/`roomdim`
+  (generated), or **convolution with custom impulse responses**
+  (`ir`/`irspeed`/`irbegin`, loaded like samples). Regenerates only on
+  parameter change.
+- **`djf`**: one-knob DJ filter worklet on the whole orbit bus.
+- **Sidechain ducking**: `duckorbit`/`duckonset`/`duckattack`/`duckdepth`
+  — a voice ducks *other orbits'* output gain with exponential ramps.
+  With orbit = device, pumping is one key in the kick's definition
+  (`duckorbit: <pad device>`); free, and demo-bank material.
+
+**Per voice**: `distort` (+`distortvol`, `distorttype`, gain-compensated
+waveshaper), `shape`, `crush`, `coarse`, and `compressor`
+(+`compressorRatio`/`Knee`/`Attack`/`Release`, pooled
+`DynamicsCompressorNode`). Saturation is therefore per-definition already.
+
+**The gap — master limiting**: `SuperdoughAudioController` sums via
+`channelMerger → destinationGain → destination` with nothing protective.
+Fix: insert `getCompressor()` (`helpers.mjs:148`) before
+`destinationGain` with limiter-shaped settings (threshold ≈ −2dB, ratio ≈
+20, attack ≈ 2ms). Exposed as a **`master()` mount statement**, sibling
+of `bpm()`/`grid()`:
+
+```js
+master({ gain: 0.9, threshold: -2, ratio: 20 })
+```
+
+Design consequence recorded: orbit parameters riding in per-voice controls
+(last-write-wins on the shared node) work but scatter the bus config —
+this is the strongest argument yet for the §11.6 cascade, at least for the
+orbit-parameter keys (`'3': { delaytime: .375, roomsize: 3 }` configures
+the kit's bus once; channels stay voices).
+
+## 9. Integration and vendoring plan
 
 - **Vendor `packages/superdough`** alongside core/mini/transpiler, plus
   strudel's in-monorepo `vite-plugin-bundle-audioworklet` (resolves the
@@ -184,19 +231,20 @@ bank doubles as the living documentation of the definition vocabulary.
   start; AudioContext creation/resume on first gesture (the `ensure()`
   pattern already exists). Wavetables and sample packs load over the
   network on first use — fine on the deployed site; offline use gets
-  silence for those sounds and a status-line note (§10.7).
+  silence for those sounds and a status-line note (§11.7).
 - **Mount scope widening**: `s`/`sound` and the controls vocabulary enter
   the curated scope only insofar as v1 needs them — v1 definitions are
   plain objects/functions, so *no* new Pattern-side controls are required
-  yet; the scope work belongs to the §9.1 field phase. (This is a real
-  simplification the static-first scoping buys.)
+  yet; the scope work belongs to the §10.1 field phase. (This is a real
+  simplification the static-first scoping buys.) `master()` (§8) joins the
+  statement scope beside `bpm()`/`grid()`.
 - **Routing**: implemented at the `noteEvents` seam (`main.js:145-151`)
   — resolve device: synth def → §4 chain; string → MIDI as today; absent →
   nothing. `PreviewSynth` and its checkbox are removed in the same change.
 
-## 9. Deferred (documented for the future pass)
+## 10. Deferred (documented for the future pass)
 
-### 9.1 Pattern fields (the time-indexed axis) — deferred by user decision
+### 10.1 Pattern fields (the time-indexed axis) — deferred by user decision
 A definition may be a strudel controls pattern, queried at the strike's
 cycle position (positions unwrapped): the instrument as a **timbre field**
 — `s('sawtooth').lpf("<600 900 1400 2600>").resonance(perlin.range(6,20))`
@@ -215,21 +263,21 @@ wants both. Theory note for the eventual doc: strudel merges note and
 timbre in pattern algebra; griddle's notes come from the grid, so the
 merge happens at the strike — §4's resolve() is that merge point.
 
-### 9.2 F → synth modulation (renderer #0 earns segments)
+### 10.2 F → synth modulation (renderer #0 earns segments)
 WebAudio `AudioParam`s natively consume the segment contract
 (`linearRampToValueAtTime`); superdough's `connectBusModulator` is the
 plausible attach point for F streams modulating a synth device's bus
 (filter, gain) continuously. Recorded, not designed.
 
-### 9.3 Control writes (W-like face)
+### 10.3 Control writes (W-like face)
 A per-device mapping from W's controller numbers to named controls —
-grid-pushed control changes for synth devices. Needs the §9.2 story first.
+grid-pushed control changes for synth devices. Needs the §10.2 story first.
 
-### 9.4 Sample packs
+### 10.4 Sample packs
 `s('bd')`-style sample playback is engine-supported (sampler.mjs); the
 griddle-side story (pack loading UI, offline caching) is its own pass.
 
-## 10. Open questions (deferred — ask before deciding)
+## 11. Open questions (deferred — ask before deciding)
 
 1. **Key syntax**: `'3.1'` (readable object key) vs `'31'` (mirrors the
    concatenated `@2a` sigil convention). Working: `'3.1'`.
@@ -245,14 +293,24 @@ griddle-side story (pack loading UI, offline caching) is its own pass.
    (working: device `1`, leaving `0` for the user's first MIDI routing),
    and whether the bank is one device or splits kit/tonal across two.
 6. **Cascade merge**: device-level def as base controls with channel
-   overrides (CSS-style) vs specific-wins (the `@` table rule). Working:
-   specific-wins; cascade recorded as a maybe.
+   overrides (CSS-style) vs specific-wins (the `@` table rule). Working
+   answer UPGRADED by §8: cascade at least for the orbit-parameter keys
+   (delaytime/feedback, room*, ir*) so a device's bus is configured once;
+   whether voice keys cascade too is the remaining taste call.
 7. **Offline/CDN posture** for wavetable/sample assets on the deployed
    site (silent skip + status note vs bundling a minimal wavetable set).
 8. **Velocity → gain curve**: linear `v/127` (working) vs a perceptual
    curve; and whether definitions can opt out of velocity scaling.
+9. **cps mapping for `delaysync`** (§8): what one superdough "cycle"
+   means in griddle time — a beat (`cps = bpm/60`) or a bar
+   (`cps = bpm/240` at 4 ticks/beat). Working: a beat, so
+   `delaysync: 0.75` reads as dotted-eighth-of-a-beat-ish; confirm
+   against feel.
+10. **`master()` defaults** (§8): limiter always on with gentle defaults
+    (safety-first, working) vs only present when the statement appears;
+    exact parameter spelling.
 
-## 11. Testing plan (headless first, per house rules)
+## 12. Testing plan (headless first, per house rules)
 
 Resolution chain is pure and testable without audio: lookup chain
 (`dev.ch ?? dev`, fallbacks, absent device), function evaluation and merge
@@ -260,12 +318,14 @@ precedence (grid owns note/duration; velocity multiplies gain), 16-fold
 channel folding, determinism (fixed grid + mounts + tick range → identical
 resolved-controls sequences, asserted structurally against a mock
 superdough capture). Scheduling: `toCtxTime` mapping monotonicity (already
-exercised by PreviewSynth tests if any — port them). Default doc: bank
-evaluates without error; every channel resolves. Audio itself: manual
-smoke (one sound, then the bank), per the strudel-side testing posture —
-don't boot audio from tooling.
+exercised by PreviewSynth tests if any — port them). `master()` statement:
+parses, validates ranges, records into the table (bpm()/grid() pattern).
+Default doc: bank evaluates without error; every channel resolves. Audio
+itself: manual smoke (one sound, then the bank; limiter audibly catches a
+deliberate overload), per the strudel-side testing posture — don't boot
+audio from tooling.
 
-## 12. Source references
+## 13. Source references
 
 | What | Where |
 |---|---|
@@ -273,6 +333,10 @@ don't boot audio from tooling.
 | sound registration (waveforms, supersaw, sbd, noises…) | `strudel/packages/superdough/synth.mjs:42-420` |
 | wavetable engine, 22 warp modes, `wt_lfo` | `strudel/packages/superdough/wavetable.mjs` |
 | per-voice modulators (postdates vendor pin) | `strudel/packages/superdough/modulators.mjs` |
+| orbit bus: delay/reverb/djf/duck | `strudel/packages/superdough/superdoughoutput.mjs:19-130` (`Orbit`), `:200` (`duck` fan-out) |
+| master sum (limiter insertion point) | `strudel/packages/superdough/superdoughoutput.mjs:143-148` (`channelMerger → destinationGain`) |
+| pooled compressor for the master limiter | `strudel/packages/superdough/helpers.mjs:148` (`getCompressor`) |
+| per-voice distort/compressor in the fx chain | `strudel/packages/superdough/superdough.mjs:812-860` |
 | worklet import plugin to vendor | `strudel/packages/vite-plugin-bundle-audioworklet/` |
 | the seam to replace | `griddle/src/midi.js:62-96` (`PreviewSynth`), `griddle/src/main.js:145-151` (noteEvents routing) |
 | device table + specific??global precedent | `griddle/src/mounts.js` (`devices()`, `lookup`), `griddle-lfo-mounts-design.md` §2.2 |
