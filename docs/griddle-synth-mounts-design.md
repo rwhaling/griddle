@@ -106,16 +106,24 @@ chain later without breaking anything.
 resolve(def, ctx):                        // per noteEvent
   def = lookup(device.channel) ?? lookup(device)   // §3 chain
   if (typeof def === 'function') def = def(ctx.note, ctx.vel, ctx.dur)
-  controls = { ...def, note: ctx.note,
-               gain: (def.gain ?? 1) * ctx.vel / 127,
-               duration: ctx.durSec }
-  superdough(controls, toCtxTime(ctx.timeMs), ctx.durSec)
+  for (layer of [def].flat()) {                    // array = layered voices
+    controls = { ...layer, note: ctx.note,
+                 gain: (layer.gain ?? 1) * ctx.vel / 127,
+                 duration: ctx.durSec }
+    superdough(controls, toCtxTime(ctx.timeMs), ctx.durSec)
+  }
 ```
 
 Merge rule: the definition speaks for timbre; Z's ports speak for the
 note. `note`/`duration` always come from the grid; velocity multiplies
 into the definition's `gain` rather than replacing it (a quiet preset
 stays quiet under full velocity).
+
+**Layered definitions (added 2026-07-30, in v1)**: a definition — or a
+function's return — may be an **array of controls objects**, each becoming
+one voice at the same timestamp. One superdough call is one source; a
+layered def is how a strike sounds like oscillator-plus-noise — the
+classic drum-synth voice (§7.1). One `.flat()` branch, no new concepts.
 
 ## 5. The function contract
 
@@ -169,6 +177,51 @@ Sketch (contents are a taste pass for the user, not final):
 Implementation order (user decision): **prove the mechanism on one or two
 simple sounds first**; author the full bank as a later polish pass. The
 bank doubles as the living documentation of the definition vocabulary.
+
+### 7.1 Worked target: Microtonic (the drum-synth stress test)
+
+Studied 2026-07-30 against the Sonic Charge Microtonic user guide (v3.3.4)
+— a single universal drum-voice architecture: oscillator (sine/tri/saw,
+pitch modulation) + filtered noise (LP/BP/HP + Q, shaped envelope), mixed,
+distorted, EQ'd, with three velocity-sensitivity targets. Verdict:
+**~85% reproducible with genuine character overlap**, given §4's layered
+definitions. The bank's drum channels should be Microtonic-shaped.
+
+What maps directly (verified against superdough source):
+
+| Microtonic | superdough |
+|---|---|
+| osc sine/tri/saw + frequency | `s` + `freq` |
+| decaying pitch mod (the kick/tom heart) | full pitch ADSR: `penv` (signed semitones) + `pattack`/`pdecay` + **`pcurve`** (0=linear 1=exponential — the drop curve is shapeable) |
+| sine pitch mod: slow (LFO) / fast (FM, metallic) | `vib`/`vibmod` / `fmi`+`fmh` (rate-Hz → ratio conversion in a def function) |
+| noise + multimode filter + Q | `'white'`/pink/brown + `lpf`/`bpf`/`hpf` + resonance, ladder model available |
+| osc/noise mix | layer gains (§4 arrays) |
+| distortion 0–100 | `distort`/`distortvol`/`distorttype` (+`crush`/`coarse`) |
+| velocity sensitivity (3 fixed targets, 0–200%) | the def function — velocity may scale *any* control with any curve; strictly more general |
+| level/pan, output A/B | `gain`/`pan`, orbit/device routing (36 devices vs 2 buses) |
+
+Envelope curvature (double-checked 2026-07-30): superdough's envelope
+machinery supports linear AND exponential ramps (`getParamADSR` curve
+param); filter envelopes default exponential, pitch envelope selectable
+via `pcurve`. Only the **amplitude** ADSR is hardcoded `'linear'` at the
+synth `registerSound` call sites — an unexposed parameter, not a
+machinery limit. Fix: the §9 `acurve` vendored patch (also buys
+Microtonic's signature exponential attack). Symmetry noted: Microtonic's
+manual concedes exponential decay "never reaches zero… only approximate"
+— the same approximation as WebAudio's 0.001-floored exponential ramp.
+
+Honest gaps (each with its workaround): **audio-rate random pitch mod**
+(shaker/rattle band-noise — no equivalent; `crackle` is adjacent; NB
+per-trigger randomization is *better* done griddle-side: an `R` feeding a
+port is deterministic, visible, replayable); **modulated/clap envelope**
+(retriggered micro-bursts — tick resolution can't fake 10–30ms spacing;
+accept a different clap or `crackle`); **per-voice bell EQ** (filters /
+orbit `djf` approximate the role, not the ±40dB boost); **synth-voice
+choke groups** (`cut` exists only in the sampler path, `sampler.mjs:289`
+— griddle-side gating idiom or a small vendored extension, §11.11);
+**stereo-uncorrelated noise** (orbit reverb send does the dispersed job
+by other means). The pattern-engine half of Microtonic — matrix, accents,
+chaining, choke priorities — is griddle itself.
 
 ## 8. Effects and the master bus (added 2026-07-30)
 
@@ -227,6 +280,13 @@ the kit's bus once; channels stay voices).
   superdough's `modulators.mjs` (per-voice LFOs). Bumping the vendor moves
   core/mini/transpiler too — do it deliberately, run the full suite, note
   the new commit in the provenance README.
+- **`acurve` vendored patch** (§7.1): expose the amplitude ADSR's curve —
+  the synth `registerSound` sites hardcode `'linear'` into a
+  curve-capable `getParamADSR`; thread `value.acurve ?? 'linear'` through
+  instead (one word per call site). Note in the provenance README as a
+  local delta; offer upstream to strudel as a PR — it is an
+  obviously-useful control. (A third `setTargetAtTime` RC-decay mode is
+  recorded as a maybe, not a need.)
 - **Init**: `registerSynthSounds()` (+ noises/zzfx registration) at app
   start; AudioContext creation/resume on first gesture (the `ensure()`
   pattern already exists). Wavetables and sample packs load over the
@@ -309,12 +369,17 @@ griddle-side story (pack loading UI, offline caching) is its own pass.
 10. **`master()` defaults** (§8): limiter always on with gentle defaults
     (safety-first, working) vs only present when the statement appears;
     exact parameter spelling.
+11. **Synth-voice choke groups** (§7.1): open/closed-hat choke — extend
+    superdough's sampler-only `cut` to synth voices (vendored, offer
+    upstream) vs a griddle-side gating idiom. Working: the vendored
+    extension, it is where the sampler precedent points.
 
 ## 12. Testing plan (headless first, per house rules)
 
 Resolution chain is pure and testable without audio: lookup chain
 (`dev.ch ?? dev`, fallbacks, absent device), function evaluation and merge
-precedence (grid owns note/duration; velocity multiplies gain), 16-fold
+precedence (grid owns note/duration; velocity multiplies gain), layered
+defs (array → N calls, one timestamp, per-layer gain scaling), 16-fold
 channel folding, determinism (fixed grid + mounts + tick range → identical
 resolved-controls sequences, asserted structurally against a mock
 superdough capture). Scheduling: `toCtxTime` mapping monotonicity (already
@@ -337,6 +402,10 @@ audio from tooling.
 | master sum (limiter insertion point) | `strudel/packages/superdough/superdoughoutput.mjs:143-148` (`channelMerger → destinationGain`) |
 | pooled compressor for the master limiter | `strudel/packages/superdough/helpers.mjs:148` (`getCompressor`) |
 | per-voice distort/compressor in the fx chain | `strudel/packages/superdough/superdough.mjs:812-860` |
+| curve-capable ADSR machinery (`acurve` patch target) | `strudel/packages/superdough/helpers.mjs:40-58` (`getParamADSR`), `synth.mjs:47-68` (hardcoded `'linear'`) |
+| pitch-envelope curve selection (`pcurve`) | `strudel/packages/superdough/helpers.mjs:325-335` |
+| sampler-only cut groups (choke gap) | `strudel/packages/superdough/sampler.mjs:289-365` |
+| Microtonic architecture studied (§7.1) | Sonic Charge Microtonic User Guide v3.3.4, Architecture + Drum Patch Section (pp. 4, 13–20) |
 | worklet import plugin to vendor | `strudel/packages/vite-plugin-bundle-audioworklet/` |
 | the seam to replace | `griddle/src/midi.js:62-96` (`PreviewSynth`), `griddle/src/main.js:145-151` (noteEvents routing) |
 | device table + specific??global precedent | `griddle/src/mounts.js` (`devices()`, `lookup`), `griddle-lfo-mounts-design.md` §2.2 |
