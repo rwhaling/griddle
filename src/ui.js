@@ -16,7 +16,7 @@
 
 import { TYPE, getType, getPower, getMuted, MUTE_BIT, charToCell, cellToChar, makeFlags } from './values.js';
 import { copyRegion, cutRegion, pasteRegion, regionToText } from './clipboard.js';
-import { portCells } from './ports.js';
+import { portCells, multiplexLookup } from './ports.js';
 
 const COLORS = {
   background: '#14151a',
@@ -38,6 +38,7 @@ const COLORS = {
   gridBorder: '#26282f',
   portIn: 'rgba(95, 143, 191, 0.55)', // inputs of the operator under cursor
   portOut: 'rgba(127, 212, 168, 0.55)', // its outputs
+  lookup: 'rgba(232, 200, 106, 0.7)', // M's live scan head (always-on, CLAVIER-style)
 };
 
 const PATTERN_TAGS = new Set([30, 31]); // U, V
@@ -88,6 +89,19 @@ export class GridUI {
     this.canvas.style.height = `${this.viewH}px`;
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.clampCamera();
+  }
+
+  // underline a cell (the port/lookup highlight idiom); caller sets lineWidth
+  underlineCell(gx, gy, color) {
+    const machine = this.machine;
+    if (gx < 0 || gy < 0 || gx >= machine.width || gy >= machine.height) return;
+    const [sx, sy] = this.toScreen(gx, gy);
+    const ctx = this.ctx;
+    ctx.strokeStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(sx + 3, sy + this.cell - 3);
+    ctx.lineTo(sx + this.cell - 3, sy + this.cell - 3);
+    ctx.stroke();
   }
 
   visibleCols() {
@@ -404,22 +418,26 @@ export class GridUI {
       ctx.strokeRect(ox + 0.5, oy + 0.5, cell - 1, cell - 1);
     }
 
+    // M scan heads (always-on, CLAVIER-style): underline the cell each
+    // powered M is currently reading — a live playhead over its data row
+    // (x0/x1/y0/y1: the glyph pass's visible bounds, same scope above)
+    ctx.lineWidth = 2;
+    for (let gy = Math.max(0, y0); gy < y1; gy++) {
+      for (let gx = Math.max(0, x0); gx < x1; gx++) {
+        const c = grid.get(gx, gy);
+        if (getType(c.flags) !== TYPE.OPERATOR || getMuted(c.flags) || !getPower(c.flags)) continue;
+        const look = multiplexLookup(machine, gx, gy);
+        if (look) this.underlineCell(look[0], look[1], COLORS.lookup);
+      }
+    }
+
     // port highlighting: when the cursor sits on an operator, underline its
     // input cells (blue) and output cells (green) — CLAVIER-style live help
     const ports = portCells(machine, this.cursor.x, this.cursor.y);
     if (ports) {
       ctx.lineWidth = 2;
-      const underline = (gx, gy, color) => {
-        if (gx < 0 || gy < 0 || gx >= machine.width || gy >= machine.height) return;
-        const [sx, sy] = this.toScreen(gx, gy);
-        ctx.strokeStyle = color;
-        ctx.beginPath();
-        ctx.moveTo(sx + 3, sy + cell - 3);
-        ctx.lineTo(sx + cell - 3, sy + cell - 3);
-        ctx.stroke();
-      };
-      for (const [gx, gy] of ports.ins) underline(gx, gy, COLORS.portIn);
-      for (const [gx, gy] of ports.outs) underline(gx, gy, COLORS.portOut);
+      for (const [gx, gy] of ports.ins) this.underlineCell(gx, gy, COLORS.portIn);
+      for (const [gx, gy] of ports.outs) this.underlineCell(gx, gy, COLORS.portOut);
     }
 
     // selection border + cursor

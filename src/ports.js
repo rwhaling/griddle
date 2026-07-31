@@ -84,6 +84,11 @@ export function describeAt(machine, x, y) {
         resolved = ' → no slot';
       }
     }
+    // M: show where the scan head is reading right now
+    if (cell.letter === OP.MULTIPLEX) {
+      const [lx, ly] = multiplexLookup(machine, x, y);
+      resolved = ` → reads (${lx},${ly}) ${cellStr(machine, lx, ly)}`;
+    }
     return `${spec.name} · ${parts.join(' · ')}${resolved}`;
   }
 
@@ -110,13 +115,38 @@ export function describeAt(machine, x, y) {
 }
 
 // port cells to tint when the cursor sits on an operator
+const litAt = (machine, x, y) => {
+  const c = machine.grid.get(x, y);
+  return getType(c.flags) === TYPE.LITERAL ? c.letter : 0;
+};
+
+// M's dynamically-addressed read cell: east by x-port, up by y-port + 1
+// (interpreter: read(-xv, yv + 1)). CLAVIER highlights this live — the
+// scan head over a data row.
+export function multiplexLookup(machine, x, y) {
+  const cell = machine.grid.get(x, y);
+  if (getType(cell.flags) !== TYPE.OPERATOR || cell.letter !== OP.MULTIPLEX) return null;
+  const xv = litAt(machine, x - 2, y);
+  const yv = litAt(machine, x - 1, y);
+  return [x + xv, y - yv - 1];
+}
+
+// I's dynamically-addressed write cell (m.set(x + xv, y + yv + 1, ...))
+function interfereTarget(machine, x, y) {
+  const xv = litAt(machine, x - 2, y);
+  const yv = litAt(machine, x - 1, y);
+  return [x + xv, y + yv + 1];
+}
+
 export function portCells(machine, x, y) {
   const cell = machine.grid.get(x, y);
   if (getType(cell.flags) !== TYPE.OPERATOR) return null;
   const spec = PORTS[cell.letter];
   if (!spec) return null;
-  return {
-    ins: spec.ins.map(([off]) => [x - off, y]),
-    outs: spec.outs.map(([dx, dy]) => [x + dx, y + dy]),
-  };
+  const ins = spec.ins.map(([off]) => [x - off, y]);
+  const outs = spec.outs.map(([dx, dy]) => [x + dx, y + dy]);
+  // dynamic addressing: M's lookup cell reads, I's target cell writes
+  if (cell.letter === OP.MULTIPLEX) ins.push(multiplexLookup(machine, x, y));
+  if (cell.letter === OP.INTERFERE) outs.push(interfereTarget(machine, x, y));
+  return { ins, outs };
 }
