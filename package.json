@@ -13,6 +13,7 @@
     "escodegen": "^2.1.0",
     "estree-walker": "^3.0.3",
     "fraction.js": "^5.3.4",
+    "hydra-synth": "^1.4.0",
     "nanostores": "^0.11.4"
   },
   "name": "griddle",

@@ -18,6 +18,9 @@ const strudel = (pkg, entry) => `${packagesRoot}/${pkg}/${entry}`;
 export default defineConfig({
   // relative asset paths: works at rwhaling.github.io/griddle and locally
   base: './',
+  // hydra-synth's deps (raf-loop) reference Node's `global` — rewrite to the
+  // browser's globalThis at build time (doc ten §8 spike finding)
+  define: { global: 'globalThis' },
   plugins: [bundleAudioWorkletPlugin()],
   resolve: {
     alias: [

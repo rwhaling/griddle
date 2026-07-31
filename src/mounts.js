@@ -11,6 +11,7 @@ import '@strudel/transpiler/plugin-mini.mjs'; // side effect: "..." -> m(...) (m
 import { mini } from '@strudel/mini';
 import * as strudel from '@strudel/core';
 import { TICKS_PER_BEAT } from './clock.js';
+import { tableValue, intHash, NOISE_STEPS } from './modulation.js';
 
 const { Pattern, Fraction, sine, cosine, saw, isaw, tri, square, perlin, rand } = strudel;
 
@@ -380,6 +381,18 @@ export const coercePatternValue = (v) => {
   if (v && typeof v === 'object' && v.note != null) return coercePatternValue(Number(v.note) % RADIX);
   return null;
 };
+
+// An @-mount LFO's value in [0,1] at a fractional tick t — the pure read
+// behind the visuals accessor gval() (doc ten §5). Uses the transport-
+// anchored phase formula, which matches a free-running F from reset when
+// its ports are unmodded; port mods (rate/depth/skew...) are per-operator
+// state and deliberately out of scope here.
+export function lfoValue01(art, t) {
+  if (!art || art.kind !== 'lfo') return 0;
+  const a = t / art.cycleTicks + art.phase0;
+  if (art.procedural) return intHash(Math.floor(a * NOISE_STEPS));
+  return tableValue(art.table, a);
+}
 
 // positional window (quadrant ①/②): Fraction-exact [p/S, (p+1)/S) — same
 // semantics as the legacy PatternBank, plus onset list for the MIDI face

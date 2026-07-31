@@ -7,10 +7,20 @@ into shader parameters as per-frame closures. Tenth design doc; reuses the
 mount system's editor/eval patterns (docs six/seven) and strudel's own
 `@strudel/hydra` integration as the proven precedent.*
 
-Status: **designed (2026-07-31), not implemented.** Requires the §8
-bundling spike before building. Open questions in §9 — ask before deciding
-in code. Scope decision from the design discussion: **grid panel only**;
-whole-UI capture is rejected (§2.1).
+Status: **IMPLEMENTED 2026-07-31** (129 tests). `src/visuals.js` (lazy
+hydra glue, curated scope, keep-last-good with restore-on-error,
+accessors), `lfoValue01` in `mounts.js` (the pure gval read),
+`code | visuals | ref` tabs + `fx` bypass button in the pane, visuals
+source in patch JSON (absent-key preserves), tick + opacity toggle in the
+frame loop. §8 spike findings: hydra-synth@1.4.0 bundles under vite with
+one fix — `define: { global: 'globalThis' }` (raf-loop references Node's
+`global`); it stays an npm dependency, no vendoring needed (its published
+dist is fine, unlike strudel's was); it code-splits into a lazy chunk that
+loads on first non-empty eval. Working answers adopted from §9: visuals
+tab (not statement), interpolated `beat()`, commented starter gallery as
+the default buffer, `gcell()` shipped in v1, onsets() NOT shipped
+(deferred). Untested headlessly by nature: the GPU path itself — first
+manual pass is the user's.
 
 ---
 

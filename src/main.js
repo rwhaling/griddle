@@ -2,6 +2,10 @@ import { Machine } from './interpreter.js';
 import { Clock } from './clock.js';
 import { MidiOut } from './midi.js';
 import { ensureSynth, playSynthNote } from './synthout.js';
+import {
+  evalVisuals, visualsTick, setVisualsDeps, setBypassed, isBypassed,
+  visualsActive, DEFAULT_VISUALS_DOC,
+} from './visuals.js';
 import { GridUI } from './ui.js';
 import { MountEditor } from './editor.js';
 import { MountTable, tryEvaluate, DEFAULT_MOUNT_DOC } from './mounts.js';
@@ -78,6 +82,34 @@ const mountEditor = new MountEditor($('mount-editor'), {
   },
   onChange: () => renderMountBar(),
   onExit: () => canvas.focus(),
+});
+
+const visualsEditor = new MountEditor($('visuals-editor'), {
+  onEval: (source) => {
+    evalVisualsSource(source);
+    saveState();
+  },
+  onExit: () => canvas.focus(),
+});
+visualsEditor.setSource(DEFAULT_VISUALS_DOC);
+
+// visuals eval contract (doc ten §4): flash on success, keep-last-good +
+// surfaced error on failure. Async: the first eval loads the hydra chunk.
+function evalVisualsSource(source) {
+  evalVisuals(source)
+    .then(({ active }) => {
+      visualsEditor.flash();
+      if (active) statusLine.textContent = 'visuals mounted';
+    })
+    .catch((e) => {
+      statusLine.textContent = `visuals: ${e.message || e}`;
+    });
+}
+
+$('visuals-bypass').addEventListener('click', () => {
+  setBypassed(!isBypassed());
+  $('visuals-bypass').classList.toggle('active', isBypassed());
+  canvas.focus();
 });
 
 function renderMountBar() {
@@ -166,6 +198,20 @@ const clock = new Clock({
       lastSent.set(key, at);
       midi.cc(e.channel, e.controller, e.value7, at);
     });
+  },
+});
+
+// visuals accessors read machine state per frame (doc ten §5); tickFrac
+// interpolates within the current tick from the clock's own schedule so
+// beat()/bar() are smooth rather than steppy
+setVisualsDeps({
+  getMachine: () => machine,
+  getMounts: () => mounts,
+  gridCanvas: canvas,
+  tickFrac: () => {
+    if (!playing) return 0;
+    const remaining = (clock.nextTickTime - performance.now()) / clock.tickMs();
+    return Math.max(0, Math.min(1, 1 - remaining));
   },
 });
 
@@ -259,14 +305,18 @@ $('midi-toggle').addEventListener('click', () => {
   ui.resizeCanvas();
 });
 
-// right-pane tabs: code editor / reference card
+// right-pane tabs: code editor / visuals editor / reference card
 $('tab-code').addEventListener('click', () => setPaneTab('code'));
+$('tab-visuals').addEventListener('click', () => setPaneTab('visuals'));
 $('tab-ref').addEventListener('click', () => setPaneTab('ref'));
 function setPaneTab(which) {
   mountPane.classList.toggle('show-ref', which === 'ref');
+  mountPane.classList.toggle('show-visuals', which === 'visuals');
   $('tab-code').classList.toggle('active', which === 'code');
+  $('tab-visuals').classList.toggle('active', which === 'visuals');
   $('tab-ref').classList.toggle('active', which === 'ref');
   if (which === 'code') mountEditor.focus();
+  if (which === 'visuals') visualsEditor.focus();
 }
 
 midiSelect.addEventListener('change', () => midi.select(midiSelect.value));
@@ -283,6 +333,7 @@ function buildState() {
     cellFlags,
     wires: machine.allWires().map(({ from, to }) => [from.x, from.y, to.x, to.y]),
     mount: mountEditor.getSource().split('\n'),
+    visuals: visualsEditor.getSource().split('\n'),
   };
 }
 
@@ -325,6 +376,13 @@ function applyState(state) {
     }
   }
   // state.mount undefined AND no slots: preserve current mounts (old fix)
+
+  // visuals source rides like mount: absent key preserves the current buffer
+  if (state.visuals !== undefined) {
+    const src = Array.isArray(state.visuals) ? state.visuals.join('\n') : (state.visuals ?? '');
+    visualsEditor.setSource(src);
+    evalVisualsSource(src);
+  }
 }
 
 function saveState() {
@@ -437,6 +495,10 @@ let lastContext = '';
 
 function frame() {
   ui.render();
+  // visuals layer: hydra samples the freshly-rendered grid canvas; the grid
+  // canvas goes transparent (but stays interactive) while a chain is live
+  visualsTick(performance.now());
+  canvas.classList.toggle('visuals-under', visualsActive());
   const pos = `${ui.cursor.x},${ui.cursor.y}`;
   statusLine.textContent = playing
     ? `tick ${machine.metronome} · ${pos}`
