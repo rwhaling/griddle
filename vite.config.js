@@ -66,6 +66,11 @@ export default defineConfig({
       },
     ],
   },
+  // superdough is reached via alias, not node_modules — keep the dev-server
+  // dependency optimizer's hands off the bare specifier
+  optimizeDeps: {
+    exclude: ['superdough'],
+  },
   test: {
     environment: 'node',
   },
