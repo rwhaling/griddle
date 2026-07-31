@@ -630,7 +630,8 @@ export class Machine {
 
         const outV = valueToInternal(endV01, lo, hi);
         // devices({n: null}) = black hole: bank exists, wire doesn't
-        const blackHole = this.mounts.deviceMap?.[device] === null;
+        // (keys are base36 chars — a bare number only matched devices 0-9)
+        const blackHole = this.mounts.deviceMap?.[device.toString(36)] === null;
         if (!blackHole) {
           this.emitCC(
             st,
@@ -730,7 +731,7 @@ export class Machine {
         const chCell = read(3, 0);
         if (
           getType(chCell.flags) === TYPE.LITERAL &&
-          this.mounts.deviceMap?.[device] !== null &&
+          this.mounts.deviceMap?.[device.toString(36)] !== null &&
           win.onsets.length
         ) {
           const modIs = (name) => art.mod?.name === name && modVal !== null;

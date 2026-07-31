@@ -470,7 +470,10 @@ export function velocityFromValue(value, art) {
 export class MountTable {
   constructor() {
     this.entries = new Map(); // '@a' | '@2a' -> artifact
-    this.deviceMap = {}; // logical device -> output name (null = black hole)
+    // logical device -> route. String = MIDI output name, null = black hole,
+    // object/function/array = synth definition (doc nine). Channel-qualified
+    // keys 'd.c' hold per-channel synth defs.
+    this.deviceMap = {};
     this.bpm = null; // set by a bpm() statement; null = widget rules
     this.gridSize = null; // set by grid(w, h); null = unchanged
     this.source = '';
@@ -483,6 +486,47 @@ export class MountTable {
     const s = slot.toString(36);
     return this.entries.get(sigil + d + s) ?? this.entries.get(sigil + s) ?? null;
   }
+
+  // synth definition for a note event: 'd.c' ?? 'd' (doc nine §3), channel
+  // folded mod 16 (MIDI symmetry). Returns null when the device routes to
+  // MIDI (string), a black hole (null), or nowhere.
+  synthDef(device, channel) {
+    const d = device.toString(36);
+    const c = (((channel | 0) % 16) + 16) % 16;
+    const specific = this.deviceMap[`${d}.${c.toString(36)}`];
+    if (isSynthDef(specific)) return specific;
+    const general = this.deviceMap[d];
+    return isSynthDef(general) ? general : null;
+  }
+
+  hasSynthDefs() {
+    return Object.values(this.deviceMap).some(isSynthDef);
+  }
+}
+
+const isSynthDef = (v) =>
+  typeof v === 'function' || Array.isArray(v) || (typeof v === 'object' && v !== null);
+
+// friendly filter aliases -> superdough's raw parameter names (the alias
+// layer normally lives in @strudel/core's controls, which v1 bypasses)
+const CONTROL_ALIASES = { lpf: 'cutoff', hpf: 'hcutoff', bpf: 'bandf', bpq: 'bandq', hpq: 'hresonance', lpq: 'resonance' };
+
+// doc nine §4: resolve a synth definition against a strike. Pure — takes the
+// note context, returns the list of superdough controls objects (one per
+// layer). The caller owns scheduling and the superdough call.
+export function resolveSynthControls(def, ctx) {
+  let resolved = typeof def === 'function' ? def(ctx.note, ctx.velocity, ctx.durTicks) : def;
+  if (resolved == null) return [];
+  const layers = [resolved].flat();
+  return layers.map((layer) => {
+    const controls = {};
+    for (const [k, v] of Object.entries(layer)) controls[CONTROL_ALIASES[k] ?? k] = v;
+    // the grid speaks for the note; layers with an explicit freq pin their
+    // own pitch (superdough prefers freq over note — drum layers use this)
+    controls.note = controls.note ?? ctx.note;
+    controls.gain = (Number(layer.gain ?? 1) || 0) * (ctx.velocity / 127);
+    return controls;
+  });
 }
 
 // mount-time collection context (single-threaded eval)
@@ -507,7 +551,14 @@ export function evaluateMountDoc(source) {
     spread,
     devices: (map) => {
       for (const [k, v] of Object.entries(map)) {
-        table.deviceMap[k] = v === null ? null : unwrapToken(v);
+        if (!/^[0-9a-z](\.[0-9a-f])?$/.test(k)) {
+          throw new Error(`devices(): bad key '${k}' (device 0-z, optional channel .0-.f)`);
+        }
+        // string = MIDI output, null = black hole, object/function/array =
+        // synth definition (doc nine; kept verbatim, resolved per strike)
+        if (v === null) table.deviceMap[k] = null;
+        else if (typeof v === 'function' || Array.isArray(v) || typeof v === 'object') table.deviceMap[k] = v;
+        else table.deviceMap[k] = unwrapToken(v);
       }
     },
     // patch-as-code initializers: applied by the host after a successful
@@ -603,6 +654,19 @@ mount('$9', pat('x(9,16)').gsteps(16))
 'qrstuvwxyz'.split('').forEach((ch, i) =>
   mount('$' + ch, pat('x(' + (i + 1) + ',12)').gsteps(12)))
 mount('$0', pat('~').gsteps(8))
+
+// synth device z — built-in superdough voices, no MIDI needed (doc nine)
+// point a Z at device z; channel picks the voice; layers = osc+noise drums
+devices({
+  'z.0': { s: 'sine', decay: 0.35, sustain: 0.4, release: 0.08 },
+  'z.1': (n, v, d) => ({ s: 'triangle', lpf: 700 + v * 14, lpenv: 3.5, lpdecay: 0.12, lpq: 5, decay: 0.3, sustain: 0 }),
+  'z.2': { s: 'supersaw', unison: 5, spread: 0.7, detune: 0.2, lpf: 2600, decay: 0.4, sustain: 0.5, release: 0.12 },
+  'z.3': [{ s: 'sine', freq: 50, penv: 26, pdecay: 0.07, decay: 0.4, sustain: 0 },
+          { s: 'white', lpf: 4000, decay: 0.05, sustain: 0, gain: 0.45 }],
+  'z.4': [{ s: 'triangle', freq: 440, decay: 0.06, sustain: 0 },
+          { s: 'white', bpf: 2200, bpq: 8, decay: 0.03, sustain: 0, gain: 0.6 }],
+  'z.5': { s: 'white', hpf: 8500, decay: 0.04, sustain: 0, release: 0.02 },
+})
 
 // overrides go below, e.g.:
 // @p: lfo(tri).cycle('196t').phase(0.42)

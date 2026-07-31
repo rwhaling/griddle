@@ -1,7 +1,7 @@
 // MIDI output: WebMIDI device handling in the style of strudel's midi package
 // (device enumeration with statechange refresh, timestamped sends so the
-// OS/driver does the last-mile scheduling), plus a small WebAudio preview
-// synth so the grid is audible without external gear.
+// OS/driver does the last-mile scheduling). Audible-without-gear now lives
+// in synth devices (doc nine, src/synthout.js + the device-z defaults).
 
 export class MidiOut {
   constructor() {
@@ -59,38 +59,6 @@ export class MidiOut {
   }
 }
 
-export class PreviewSynth {
-  constructor() {
-    this.ctx = null;
-  }
-
-  ensure() {
-    if (!this.ctx) this.ctx = new AudioContext();
-    if (this.ctx.state === 'suspended') this.ctx.resume();
-  }
-
-  // map a performance.now() timestamp into AudioContext time
-  toCtxTime(timeMs) {
-    return this.ctx.currentTime + Math.max(0, timeMs - performance.now()) / 1000;
-  }
-
-  note(midiNote, velocity, timeMs, durationMs) {
-    this.ensure();
-    const t = this.toCtxTime(timeMs);
-    const dur = Math.max(0.05, durationMs / 1000);
-    const freq = 440 * 2 ** ((midiNote - 69) / 12);
-    const gainValue = 0.25 * (velocity / 127);
-
-    const osc = this.ctx.createOscillator();
-    const gain = this.ctx.createGain();
-    osc.type = 'triangle';
-    osc.frequency.value = freq;
-    gain.gain.setValueAtTime(0, t);
-    gain.gain.linearRampToValueAtTime(gainValue, t + 0.005);
-    gain.gain.setValueAtTime(gainValue, t + dur);
-    gain.gain.linearRampToValueAtTime(0, t + dur + 0.03);
-    osc.connect(gain).connect(this.ctx.destination);
-    osc.start(t);
-    osc.stop(t + dur + 0.05);
-  }
-}
+// The PreviewSynth that lived here was superseded by synth devices
+// (doc nine, src/synthout.js): superdough voices mounted in the device
+// table render any note event in-process, no MIDI gear required.

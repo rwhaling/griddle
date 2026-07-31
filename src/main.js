@@ -1,6 +1,7 @@
 import { Machine } from './interpreter.js';
 import { Clock } from './clock.js';
-import { MidiOut, PreviewSynth } from './midi.js';
+import { MidiOut } from './midi.js';
+import { ensureSynth, playSynthNote } from './synthout.js';
 import { GridUI } from './ui.js';
 import { MountEditor } from './editor.js';
 import { MountTable, tryEvaluate, DEFAULT_MOUNT_DOC } from './mounts.js';
@@ -19,7 +20,6 @@ const STORAGE_KEY = 'griddle-state-v1';
 // adapter is gone — old patches migrate by textualization at load
 const machine = new Machine(GRID_W, GRID_H, null);
 const midi = new MidiOut();
-const synth = new PreviewSynth();
 
 // ---- dom ----
 const $ = (id) => document.getElementById(id);
@@ -27,7 +27,6 @@ const canvas = $('grid');
 const playBtn = $('play');
 const bpmInput = $('bpm');
 const midiSelect = $('midi-out');
-const previewCheck = $('preview');
 const statusLine = $('status');
 const panicBtn = $('panic');
 const demoBtn = $('demo');
@@ -130,12 +129,20 @@ const clock = new Clock({
   onTick: (tick, timeMs) => {
     machine.step();
     const tickMs = clock.tickMs();
+    // device routing (doc nine): a device whose mount is a synth definition
+    // renders in-process via superdough; anything else goes to MIDI as before
+    const routeNote = (e, at, durMs) => {
+      const def = mounts.synthDef(e.device ?? 0, e.channel ?? 0);
+      if (def) {
+        playSynthNote(def, e, at, durMs);
+        return;
+      }
+      midi.noteOn(e.channel, e.note, e.velocity, at);
+      midi.noteOff(e.channel, e.note, at + durMs);
+    };
     for (const e of machine.scanMidi()) {
       if (e.type === 'note') {
-        const durMs = Math.max(e.holdTicks, 0.25) * tickMs;
-        midi.noteOn(e.channel, e.note, e.velocity, timeMs);
-        midi.noteOff(e.channel, e.note, timeMs + durMs);
-        if (previewCheck.checked) synth.note(e.note, e.velocity, timeMs, durMs);
+        routeNote(e, timeMs, Math.max(e.holdTicks, 0.25) * tickMs);
       } else if (e.type === 'cc') {
         midi.cc(e.channel, e.controller, e.value, timeMs);
       }
@@ -143,11 +150,7 @@ const clock = new Clock({
     // mounted U/V MIDI faces: notes at true fractional times, durations
     // from hap whole spans
     for (const e of machine.noteEvents) {
-      const at = timeMs + e.frac * tickMs;
-      const durMs = Math.max(e.durTicks * tickMs, 15);
-      midi.noteOn(e.channel, e.note, e.velocity, at);
-      midi.noteOff(e.channel, e.note, at + durMs);
-      if (previewCheck.checked) synth.note(e.note, e.velocity, at, durMs);
+      routeNote(e, timeMs + e.frac * tickMs, Math.max(e.durTicks * tickMs, 15));
     }
     // F/G smooth-CC crossings: sub-tick timestamps, thinned to >=5ms per
     // stream (always keeping each stream's final value of the tick)
@@ -171,7 +174,11 @@ function setPlaying(next) {
   playBtn.textContent = playing ? '■ stop' : '▶ play';
   if (playing) {
     machine.reset();
-    if (previewCheck.checked) synth.ensure();
+    // load the synth engine inside the user gesture so the AudioContext may
+    // start; notes that arrive before it settles are dropped, not mistimed
+    if (mounts.hasSynthDefs()) {
+      ensureSynth().catch((e) => (statusLine.textContent = `synth engine failed: ${e.message}`));
+    }
     clock.start();
   } else {
     clock.stop();
@@ -212,8 +219,7 @@ async function initMidi() {
   const ok = await midi.init();
   refreshMidiOutputs();
   if (!ok) {
-    statusLine.textContent = `${midi.error} — preview synth enabled`;
-    previewCheck.checked = true;
+    statusLine.textContent = `${midi.error} — synth devices (device z) still play`;
   }
   midi.onDevicesChanged = refreshMidiOutputs;
 }
@@ -232,7 +238,6 @@ function refreshMidiOutputs() {
     midiSelect.appendChild(opt);
   }
   if (midi.output) midiSelect.value = midi.output.id;
-  if (!outputs.length) previewCheck.checked = true;
   // port list with copy-name buttons: authoring support for devices()
   const portsEl = $('midi-ports');
   portsEl.innerHTML = '';

@@ -8,13 +8,20 @@ slots into the renderer taxonomy of `griddle-clap-daemon-design.md` §2 as
 **renderer #0** — in-process, zero-install, living inside the published
 instrument. Supersedes the `PreviewSynth` demo voice entirely.*
 
-Status: **designed (2026-07-30), not implemented.** Scope decision by user:
-v1 ships **static controls objects and functions returning static objects**;
+Status: **v1 core IMPLEMENTED 2026-07-30** (119 tests): devices() synth
+definitions with channel-qualified keys, `synthDef` lookup chain, pure
+`resolveSynthControls` (functions, layers, aliases, velocity-gain merge) in
+`src/mounts.js`; lazy superdough glue in `src/synthout.js`; device routing
+at the noteEvents seam in `main.js`; PreviewSynth + checkbox removed;
+superdough vendored (see §9 deltas). Demo voices shipped on **device z,
+channels 0–5** (sine, pluck, supersaw, layered kick, rim, hat) per user
+direction — the §7 sixteen-sound bank remains a future polish pass. NOT
+yet implemented: `master()` limiter (§8), the `acurve` patch (§9),
+sound-by-ear tuning of the demo defs. Scope decision by user: v1 ships
+**static controls objects and functions returning static objects**;
 pattern-valued ("field") definitions are deferred but fully sketched in
-§10.1 so the resolution chain is future-compatible. Open questions in §11 —
-ask before deciding in code. Implementation note (user): start testing against
-one or two simple sounds; build the §7 sixteen-sound bank after the
-mechanism is proven.
+§10.1 so the resolution chain is future-compatible. Open questions in §11
+— ask before deciding in code.
 
 ---
 
@@ -276,10 +283,14 @@ the kit's bus once; channels stay voices).
   strudel's in-monorepo `vite-plugin-bundle-audioworklet` (resolves the
   `?audioworklet` import for DSP worklets). Same provenance discipline as
   the existing `vendor/strudel` README.
-- **Vendor refresh required**: the current pin (`95a9d301`) predates
-  superdough's `modulators.mjs` (per-voice LFOs). Bumping the vendor moves
-  core/mini/transpiler too — do it deliberately, run the full suite, note
-  the new commit in the provenance README.
+- **Vendor refresh: NOT needed** (corrected at implementation 2026-07-30):
+  the sibling clone is itself at `95a9d301` and superdough — including
+  `modulators.mjs` — exists at that commit; it was vendored from there.
+  The earlier "postdates the pin" claim was wrong. Implementation deltas
+  that DID land: the worklet plugin inherits host resolve config (local
+  delta, see `vendor/strudel/README.md`); `@kabelsalat/web` stubbed
+  (`src/stubs/`); `@kabelsalat/lib` + `nanostores@^0.11` installed;
+  superdough code-splits into a lazy chunk (loads on the play gesture).
 - **`acurve` vendored patch** (§7.1): expose the amplitude ADSR's curve —
   the synth `registerSound` sites hardcode `'linear'` into a
   curve-capable `getParamADSR`; thread `value.acurve ?? 'linear'` through
