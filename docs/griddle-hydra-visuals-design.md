@@ -12,11 +12,11 @@ hydra glue, curated scope, keep-last-good with restore-on-error,
 accessors), `lfoValue01` in `mounts.js` (the pure gval read),
 `code | visuals | ref` tabs + `fx` bypass button in the pane, visuals
 source in patch JSON (absent-key preserves), tick + opacity toggle in the
-frame loop. §8 spike findings: hydra-synth@1.4.0 bundles under vite with
+frame loop. §9 spike findings: hydra-synth@1.4.0 bundles under vite with
 one fix — `define: { global: 'globalThis' }` (raf-loop references Node's
 `global`); it stays an npm dependency, no vendoring needed (its published
 dist is fine, unlike strudel's was); it code-splits into a lazy chunk that
-loads on first non-empty eval. Working answers adopted from §9: visuals
+loads on first non-empty eval. Working answers adopted from §10: visuals
 tab (not statement), interpolated `beat()`, commented starter gallery as
 the default buffer, `gcell()` shipped in v1, onsets() NOT shipped
 (deferred). Untested headlessly by nature: the GPU path itself — first
@@ -131,7 +131,7 @@ Proposed accessor surface (v1, deliberately small):
 | accessor | value |
 |---|---|
 | `tick()` | `machine.metronome` |
-| `beat()` | beat phase 0..1 (metronome / 4, fractional via rAF interpolation — §9.3) |
+| `beat()` | beat phase 0..1 (metronome / 4, fractional via rAF interpolation — §10.3) |
 | `bar()` | bar phase 0..1 |
 | `gval('@u')` | an @-mount LFO's current value 0..1 (evaluated from its table + phase at read time) |
 | `gcell(x, y)` | a grid cell's literal value 0..35, else 0 — the grid as a control surface for visuals |
@@ -168,9 +168,55 @@ The visuals source rides in the patch JSON as a line array (`visuals:
 load (the `state.mount === undefined` convention). The default is an
 empty/commented buffer, **visuals off** — unlike the synth defaults, a
 projector aesthetic is not a cold-start need, and an empty buffer keeps
-the published page's first impression being the grid itself (§9.5).
+the published page's first impression being the grid itself (§10.5).
 
-## 8. Phase 0 — spike (do first)
+## 8. Feedback field notes + future echoes (recorded 2026-07-31)
+
+### 8.1 Feedback stability (learned in use, worth teaching)
+
+Three rules from the first real feedback patches: **`.out()` with no
+argument writes `o0`** — an innocent-looking final line can silently close
+a loop a `blend(o0, …)` upstream is reading. **A feedback buffer should
+read only itself** (`src(s0).blend(o1, k).….out(o1)`, k < 1 — blend
+conserves, so it converges). **`add` never goes inside a loop** — it is
+unbounded accumulation; composite in a display-only output no chain reads
+(`src(o1).layer(src(s0).luma(0.08, 0.12)).out(o0)` — the luma key drops
+the grid's dark background so glyphs float crisp over the chaos). Mental
+model: s0 = camera (always clean — hydra never writes the 2D canvas),
+o1–o3 = tape loops, o0 = projector. Candidates for the default-gallery
+comments on a later pass.
+
+### 8.2 Element-class visuals (user request, deferred 2026-07-31)
+
+Stated after the first sessions: "the way the colors of each grid element
+interact with hydra seems like something we could work on… some facility
+to do theming pre-hydra so we could catch particular elements (operators,
+cursor, bang, comments, data) in different ways. Or a second canvas that
+highlights those grid elements as an overlay." Left alone for now by user
+decision; two design directions recorded:
+
+1. **Key theming (weak version)**: hydra discriminates only by color, and
+   the grid palette (`ui.js` COLORS, centralized) was chosen for
+   readability, not chroma separability — luma-keying separates glyphs
+   from background but not classes from each other. An alternate
+   "key palette" mapping element classes to strongly separable colors
+   (even pure R/G/B primaries) would let chains isolate classes with
+   color-matrix ops. Cheap; cost is that s0's raw look changes while
+   keyed.
+2. **Class-mask source (strong version)**: a second offscreen canvas,
+   painted by the same draw pass as flat class masks **packed into RGB
+   channels** (e.g. R = bangs, G = operators, B = cursor; more classes in
+   a second mask canvas), fed as hydra source **`s1`** (`s1`–`s3` are
+   free). Chains then use `src(s1)` as masks and triggers: bang flashes
+   as visual events, cursor spotlight, data rows as displacement fields —
+   while s0's aesthetics stay untouched (dissolving option 1's cost).
+   One extra flat-fill render pass per frame, trivial. This is the
+   spatial sibling of `gcell()`: the grid as image-rate control data.
+
+Preference when picked up: option 2 — it composes (masks AND the raw
+grid, simultaneously) where option 1 trades one for the other.
+
+## 9. Phase 0 — spike (do first)
 
 1. **Bundling**: hydra-synth under vite — try `define: { global:
    'globalThis' }`; if it resists, vendor it like strudel (it is AGPL and
@@ -186,7 +232,7 @@ the published page's first impression being the grid itself (§9.5).
    target (Intel Mac?) while the synth demo plays; watch the status-line
    tick counter for scheduler stress.
 
-## 9. Open questions (deferred — ask before deciding)
+## 10. Open questions (deferred — ask before deciding)
 
 1. **Pane vs statement**: a dedicated `visuals` tab (working, §4) vs a
    `visuals(...)` statement inside the mount doc. The tab keeps eval
@@ -206,7 +252,7 @@ the published page's first impression being the grid itself (§9.5).
 6. **hydra version pinning + vendoring policy** — same question shape as
    superdough's; decide in the spike.
 
-## 10. Testing plan
+## 11. Testing plan
 
 Headless surface is thin by nature (the layer is GPU + DOM); test what is
 pure: accessor functions (`gval` table evaluation against known mounts,
@@ -214,11 +260,11 @@ pure: accessor functions (`gval` table evaluation against known mounts,
 serialization round-trip (present/absent-key semantics mirroring mount's
 tests), scope construction (curated names present, no globals leaked —
 assert `globalThis.osc === undefined` after init with `makeGlobal:
-false`). Manual: the §8 spike checklist, plus eval-error → keep-last-good
+false`). Manual: the §9 spike checklist, plus eval-error → keep-last-good
 → bypass behavior, and a long-session soak (context loss handling —
 `webglcontextlost` → re-init, recorded as an implementation requirement).
 
-## 11. Source references
+## 12. Source references
 
 | What | Where |
 |---|---|
