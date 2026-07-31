@@ -235,6 +235,13 @@ file) or live MIDI input. Keep this boundary legible — it's a feature.
 > `griddle-clap-daemon-design.md` — spike required before building; no
 > implementation commitment.
 >
+> 2026-07-31: hydra visuals (livecoded shaders over the grid panel:
+> hydra-synth post-processing the rendered grid canvas as source texture,
+> per strudel's feedStrudel precedent; third pane tab under the mount-doc
+> eval contract; machine state bound as per-frame closures — gval('@u'),
+> beat(); whole-UI capture rejected) is designed in
+> `griddle-hydra-visuals-design.md` — bundling spike first.
+>
 > 2026-07-30: synth mounts (superdough as renderer #0: synth definitions
 > in the device table, channel-qualified `dev.ch ?? dev`, channel as
 > timbre selector; v1 = static objects + functions `(note, vel, dur)`,
