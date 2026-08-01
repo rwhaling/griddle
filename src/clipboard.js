@@ -2,7 +2,7 @@
 // cell contents and any wires whose endpoints are entirely inside the region
 // (CLAVIER's clipboard does the same — see ClipboardWire in src/clavier.c).
 
-import { TYPE, getType, cellToChar } from './values.js';
+import { TYPE, getType, cellToChar, charToCell } from './values.js';
 
 // rect: {x, y, w, h} -> data: {w, h, cells: [[dx,dy,flags,letter]], wires: [[adx,ady,bdx,bdy]]}
 export function copyRegion(machine, rect) {
@@ -63,4 +63,29 @@ export function regionToText(data) {
     rows[dy][dx] = cellToChar(flags, letter);
   }
   return rows.map((r) => r.join('')).join('\n');
+}
+
+// inverse of regionToText: parse plain text (a doc figure, a CLAVIER-style
+// snippet, a paste from another tab) into a pasteable region. '.', '·',
+// space, and tab are empty cells; recognized glyphs get their canonical
+// typed flags (operators arrive powered — mute/power exceptions don't
+// survive text, that's the patch file's job); anything else advances the
+// column without placing. Returns null when no cell parses — prose is not
+// a grid, and pasting it should do nothing.
+export function textToRegion(text) {
+  const lines = String(text).replace(/\r/g, '').split('\n');
+  while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+  while (lines.length && !lines[0].trim()) lines.shift();
+  const cells = [];
+  let w = 0;
+  lines.forEach((line, dy) => {
+    w = Math.max(w, line.length);
+    [...line].forEach((ch, dx) => {
+      if (ch === '.' || ch === '·' || ch === ' ' || ch === '\t') return;
+      const cell = charToCell(ch);
+      if (cell) cells.push([dx, dy, cell.flags, cell.letter]);
+    });
+  });
+  if (!cells.length) return null;
+  return { w, h: lines.length, cells, wires: [] };
 }

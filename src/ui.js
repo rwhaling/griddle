@@ -15,7 +15,7 @@
 //     view, so arrows/typing auto-pan; alt+arrows leap 8 cells; '['/']' zoom
 
 import { TYPE, getType, getPower, getMuted, MUTE_BIT, charToCell, cellToChar, makeFlags } from './values.js';
-import { copyRegion, cutRegion, pasteRegion, regionToText } from './clipboard.js';
+import { copyRegion, cutRegion, pasteRegion, regionToText, textToRegion } from './clipboard.js';
 import { portCells, multiplexLookup } from './ports.js';
 
 const COLORS = {
@@ -89,6 +89,27 @@ export class GridUI {
     this.canvas.style.height = `${this.viewH}px`;
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.clampCamera();
+  }
+
+  // paste at the cursor: prefer the OS clipboard when it holds grid text
+  // that differs from our own last copy (a doc figure, another tab, a
+  // CLAVIER-style snippet); otherwise the internal region, which preserves
+  // power/mute flags and interior wires that plain text cannot carry
+  async pasteAtCursor() {
+    let external = null;
+    try {
+      const text = await navigator.clipboard.readText();
+      const ours = this.clipboard ? regionToText(this.clipboard) : null;
+      if (text && text.replace(/\r/g, '').trimEnd() !== ours) {
+        external = textToRegion(text);
+      }
+    } catch {
+      // clipboard read unavailable or denied: internal clipboard only
+    }
+    const data = external ?? this.clipboard;
+    if (!data) return;
+    pasteRegion(this.machine, data, this.cursor);
+    this.onEdit?.();
   }
 
   // underline a cell (the port/lookup highlight idiom); caller sets lineWidth
@@ -210,10 +231,7 @@ export class GridUI {
         this.cursor = { x: 0, y: 0 };
         this.box = { w: this.machine.width, h: this.machine.height };
       } else if (e.key === 'v') {
-        if (this.clipboard) {
-          pasteRegion(this.machine, this.clipboard, this.cursor);
-          this.onEdit?.();
-        }
+        this.pasteAtCursor();
       } else {
         const rect = this.selectionRect();
         this.clipboard = e.key === 'x' ? cutRegion(this.machine, rect) : copyRegion(this.machine, rect);
