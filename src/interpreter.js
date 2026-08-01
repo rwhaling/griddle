@@ -347,9 +347,22 @@ export class Machine {
       case OP.AND: {
         const lhs = read(2, 0);
         const rhs = read(1, 0);
-        if (getType(lhs.flags) === TYPE.LITERAL && getType(rhs.flags) === TYPE.LITERAL) {
+        const lt = getType(lhs.flags);
+        const rt = getType(rhs.flags);
+        if (lt === TYPE.LITERAL && rt === TYPE.LITERAL) {
           write(0, 1, lit(lhs.letter & rhs.letter));
-        } else if (getType(lhs.flags) === TYPE.BANG && getType(rhs.flags) === TYPE.BANG) {
+        } else if (lt === TYPE.BANG && rt === TYPE.BANG) {
+          write(0, 1, BANG);
+        } else if (
+          (lt === TYPE.BANG && rt === TYPE.LITERAL) ||
+          (lt === TYPE.LITERAL && rt === TYPE.BANG)
+        ) {
+          // presence-conjunction (2026-08-01, deliberate CLAVIER divergence
+          // in previously-unclaimed space — mixed inputs wrote NONE in both
+          // systems): trigger AND data-exists = trigger. The type-aware gate
+          // for sparse sequencer rows, where literal 0 is a real pitch and
+          // an empty cell is a real rest — no value-domain test can tell
+          // them apart (readLiteral defaults), so & does.
           write(0, 1, BANG);
         } else {
           write(0, 1, NONE);

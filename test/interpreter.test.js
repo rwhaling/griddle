@@ -103,6 +103,47 @@ describe('arithmetic and dataflow', () => {
     expect(charAt(m, 6, 2)).toBe('5');
   });
 
+  it('AND presence-conjunction: bang & literal gates on data-exists (2026-08-01)', () => {
+    // trigger + occupied cell -> bang (either order)
+    for (const [a, b] of [['!', '5'], ['5', '!'], ['!', '0']]) {
+      const m = new Machine(8, 8, null);
+      place(m, 1, 1, a);
+      place(m, 2, 1, b);
+      place(m, 3, 1, '&');
+      m.step();
+      expect(charAt(m, 3, 2), `${a} & ${b}`).toBe('!'); // note: 0 is real data
+    }
+    // trigger + empty cell -> NONE (the rest stays a rest)
+    const rest = new Machine(8, 8, null);
+    place(rest, 1, 1, '!');
+    place(rest, 3, 1, '&');
+    rest.step();
+    expect(charAt(rest, 3, 2)).toBe('.');
+    // pure cases unchanged: lit&lit bitwise, bang&bang bang
+    const bits = new Machine(8, 8, null);
+    place(bits, 1, 1, '6');
+    place(bits, 2, 1, '3');
+    place(bits, 3, 1, '&');
+    bits.step();
+    expect(charAt(bits, 3, 2)).toBe('2'); // 6 & 3
+    const bb = new Machine(8, 8, null);
+    place(bb, 1, 1, '!');
+    place(bb, 2, 1, '!');
+    place(bb, 3, 1, '&');
+    bb.step();
+    expect(charAt(bb, 3, 2)).toBe('!');
+  });
+
+  it('M copies emptiness verbatim, so a scanned blank reaches & as a rest', () => {
+    // the composition fact behind the sparse-sequencer idiom: M's output
+    // preserves NONE, so & downstream gates on the row's true occupancy
+    const n = new Machine(8, 8, null);
+    place(n, 1, 1, '2');
+    place(n, 3, 1, 'M'); // x=2, y=0 -> reads (5,0): empty
+    n.step();
+    expect(getType(n.grid.get(3, 2).flags)).toBe(TYPE.NONE);
+  });
+
   it('STORE and LOAD round-trip through registers', () => {
     const m = new Machine(8, 8, null);
     place(m, 1, 1, '9'); // value

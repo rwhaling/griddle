@@ -235,6 +235,18 @@ file) or live MIDI input. Keep this boundary legible — it's a feature.
 > `griddle-clap-daemon-design.md` — spike required before building; no
 > implementation commitment.
 >
+> 2026-08-01: `&` presence-conjunction IMPLEMENTED — the first deliberate
+> eval-semantics divergence from CLAVIER, in previously-unclaimed space:
+> `&` of a bang and a literal (either order) now bangs, where both systems
+> wrote NONE. Reading: trigger AND data-exists = trigger. This is the
+> type-aware gate for sparse sequencer rows (literal 0 is a real pitch, an
+> empty cell a real rest — readLiteral defaults make the two inseparable
+> in the value domain, so no comparator hack can ever work). M copies NONE
+> verbatim, so one M scanning a sparse row feeds both the `&` gate and the
+> Z pitch port. Pure cases (lit&lit bitwise, bang&bang) unchanged; `|`
+> deliberately left alone (extending it would make a triggerless
+> literal-detector). User-proposed spelling, adopted as designed.
+>
 > 2026-07-31: hydra visuals (livecoded shaders over the grid panel:
 > hydra-synth post-processing the rendered grid canvas as source texture,
 > per strudel's feedStrudel precedent; third pane tab under the mount-doc
