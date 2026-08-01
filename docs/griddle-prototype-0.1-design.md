@@ -235,6 +235,26 @@ file) or live MIDI input. Keep this boundary legible — it's a feature.
 > `griddle-clap-daemon-design.md` — spike required before building; no
 > implementation commitment.
 >
+> 2026-08-01: text trailer for flags/wires — DESIGNED in conversation,
+> deferred (do not implement until asked). Plain-text grid paste
+> (textToRegion, shipped 2026-08-01) cannot carry the power/mute bits or
+> wires, so tutorial figures with bang-fired operators need a manual
+> "unpower the I" step after pasting. Design: an optional trailer after
+> the grid body — directive lines `unpower x,y ...`, `mute x,y ...`,
+> `wire x1,y1 -> x2,y2` (and `moving x,y n|e|s|w` for the velocity bits,
+> completing the flags byte), coordinates figure-relative, optional `--`
+> separator, extracted before the row parse; figures without trailers
+> unchanged. This is serialization v2's rows+cellFlags+wires sidecar in a
+> third medium (CLAVIER ClipboardWire lineage). Decisions when built:
+> regionToText EMITS the trailer only when the region has exceptions
+> (round-trip symmetry is the prize — grid→text→grid becomes
+> full-fidelity, and the internal structured clipboard becomes nearly
+> redundant; decide whether it stays as an optimization); prose safety
+> via strict directive grammar + the existing no-cells-parses-null rule;
+> whether directives must trail the body. Payoff: tutorial figures become
+> fully self-contained (trailer replaces "press backtick" captions) and
+> the validation harness consumes figure+trailer as a unit.
+>
 > 2026-08-01: `mountSignal`/`mountPattern` IMPLEMENTED — sigil-free mount
 > refs, by user preference for readability. Slots are numbers 0–35 or
 > chars; device-qualified stays the two-char string ('2a'). The sigil was
