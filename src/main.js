@@ -405,12 +405,35 @@ function loadState() {
 }
 
 // ---- patch files (export/import survive storage clears, live in git) ----
-function exportPatch() {
-  const blob = new Blob([JSON.stringify(buildState(), null, 2)], { type: 'application/json' });
+// save uses the OS save-as picker where available (Chrome/Edge), seeded
+// with the last saved/loaded name so versioning a patch is a small edit
+// instead of a rename-in-Downloads hunt; falls back to a plain download
+const PATCH_NAME_KEY = 'griddle-last-patch-name';
+async function exportPatch() {
+  const json = JSON.stringify(buildState(), null, 2);
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-');
+  const suggested = localStorage.getItem(PATCH_NAME_KEY) || `griddle-patch-${stamp}.json`;
+  if (window.showSaveFilePicker) {
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: suggested,
+        types: [{ description: 'griddle patch', accept: { 'application/json': ['.json'] } }],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(json);
+      await writable.close();
+      localStorage.setItem(PATCH_NAME_KEY, handle.name);
+      statusLine.textContent = `saved ${handle.name}`;
+      return;
+    } catch (e) {
+      if (e.name === 'AbortError') return; // user cancelled the picker
+      // picker failed for a real reason: fall through to the download path
+    }
+  }
+  const blob = new Blob([json], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-');
-  a.download = `griddle-patch-${stamp}.json`;
+  a.download = suggested;
   a.click();
   URL.revokeObjectURL(a.href);
 }
@@ -421,6 +444,7 @@ async function importPatch(file) {
     if (!looksLikePatch(state)) throw new Error('not a griddle patch (no rows or cells)');
     applyState(state);
     saveState();
+    localStorage.setItem(PATCH_NAME_KEY, file.name); // next save-as suggests it
     statusLine.textContent = `loaded ${file.name}`;
   } catch (e) {
     statusLine.textContent = `import failed: ${e.message}`;
