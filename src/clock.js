@@ -6,12 +6,16 @@
 
 const POLL_MS = 25;
 const LOOKAHEAD_MS = 150;
-export const TICKS_PER_BEAT = 4; // Orca convention: a tick is a sixteenth
+// default ticks-per-beat (Orca convention: a tick is a sixteenth); a patch
+// may redeclare via the ticks(n) mount statement — ticks() changes what a
+// beat means, never what a tick does
+export const TICKS_PER_BEAT = 4;
 
 export class Clock {
-  constructor({ onTick, getBpm }) {
+  constructor({ onTick, getBpm, getTpb }) {
     this.onTick = onTick; // (tickNumber, timeMs) => void
     this.getBpm = getBpm;
+    this.getTpb = getTpb ?? (() => TICKS_PER_BEAT);
     this.running = false;
     this.interval = null;
     this.tick = 0;
@@ -19,7 +23,7 @@ export class Clock {
   }
 
   tickMs() {
-    return 60000 / (this.getBpm() * TICKS_PER_BEAT);
+    return 60000 / (this.getBpm() * this.getTpb());
   }
 
   start() {

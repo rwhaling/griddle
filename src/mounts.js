@@ -58,16 +58,25 @@ const unwrapToken = (x) => {
   return x;
 };
 
+// ticks-per-beat during document evaluation: ticks(n) sets it, beat-relative
+// cycle specs consume it. Reset per eval; outside eval the default holds.
+let evalTpb = TICKS_PER_BEAT;
+let beatSpecUsed = false;
+
 export function cycleTicks(spec) {
   spec = unwrapToken(spec);
-  if (typeof spec === 'number') return spec * TICKS_PER_BEAT;
+  if (typeof spec === 'number') {
+    beatSpecUsed = true;
+    return spec * evalTpb;
+  }
   if (isStrudelPattern(spec)) {
     throw new Error("cycle spec got a pattern — use single quotes: .cycle('4b') (double quotes are mini-notation)");
   }
   const m = /^\s*([\d.]+)\s*(t|b|bar)\s*$/.exec(String(spec));
   if (!m) throw new Error(`bad cycle spec: ${JSON.stringify(spec)} (use '16t' / '3.5b' / '2bar')`);
   const n = parseFloat(m[1]);
-  return m[2] === 't' ? n : m[2] === 'b' ? n * TICKS_PER_BEAT : n * 4 * TICKS_PER_BEAT;
+  if (m[2] !== 't') beatSpecUsed = true;
+  return m[2] === 't' ? n : m[2] === 'b' ? n * evalTpb : n * 4 * evalTpb;
 }
 
 // geometric spread of n cycle specs between two durations
@@ -488,6 +497,7 @@ export class MountTable {
     // keys 'd.c' hold per-channel synth defs.
     this.deviceMap = {};
     this.bpm = null; // set by a bpm() statement; null = widget rules
+    this.ticksPerBeat = TICKS_PER_BEAT; // set by ticks(n); a declaration, not a knob
     this.gridSize = null; // set by grid(w, h); null = unchanged
     this.source = '';
     this.errors = [];
@@ -557,6 +567,8 @@ const activeCollector = () => {
 export function evaluateMountDoc(source) {
   const table = new MountTable();
   table.source = source;
+  evalTpb = TICKS_PER_BEAT; // ticks(n) may redeclare, before any beat spec
+  beatSpecUsed = false;
 
   const scope = {
     // griddle
@@ -580,6 +592,20 @@ export function evaluateMountDoc(source) {
       n = Number(unwrapToken(n));
       if (!Number.isFinite(n) || n < 20 || n > 300) throw new Error(`bpm(${n}): expected 20..300`);
       table.bpm = n;
+    },
+    // ticks-per-beat declaration (default 4). Divisors of 24 only: keeps
+    // future MIDI-clock pulses-per-tick integer, allows triplet grids.
+    // Changes what a beat means, never what a tick does.
+    ticks: (n) => {
+      n = Number(unwrapToken(n));
+      if (![1, 2, 3, 4, 6, 8, 12, 24].includes(n)) {
+        throw new Error(`ticks(${n}): expected a divisor of 24 (1,2,3,4,6,8,12,24)`);
+      }
+      if (beatSpecUsed) {
+        throw new Error('ticks() must precede beat-relative mounts (their cycle specs resolve when mounted)');
+      }
+      evalTpb = n;
+      table.ticksPerBeat = n;
     },
     grid: (w, h) => {
       w = Math.round(Number(w));
@@ -637,6 +663,7 @@ export function evaluateMountDoc(source) {
     fn(...Object.values(scope));
   } finally {
     collector = null;
+    evalTpb = TICKS_PER_BEAT; // don't leak a patch's declaration out of eval
   }
   return table;
 }

@@ -26,10 +26,11 @@ export const visualsActive = () => active && !bypassed;
 // read-only views of machine state — pure per frame, never write
 export function makeAccessors(d) {
   const tickFloat = () => d.getMachine().metronome + d.tickFrac();
+  const tpb = () => d.getTpb?.() ?? 4;
   return {
     tick: tickFloat,
-    beat: () => (tickFloat() / 4) % 1,
-    bar: () => (tickFloat() / 16) % 1,
+    beat: () => (tickFloat() / tpb()) % 1,
+    bar: () => (tickFloat() / (tpb() * 4)) % 1,
     gval: (ref) => {
       const slot = parseInt(String(ref).replace(/^@/, ''), 36);
       if (!Number.isFinite(slot)) return 0;

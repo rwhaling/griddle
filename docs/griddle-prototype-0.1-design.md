@@ -235,6 +235,27 @@ file) or live MIDI input. Keep this boundary legible — it's a feature.
 > `griddle-clap-daemon-design.md` — spike required before building; no
 > implementation commitment.
 >
+> 2026-08-01: `ticks(n)` IMPLEMENTED — ticks-per-beat as a per-patch mount
+> statement (default 4; n must divide 24, keeping the MIDI-clock doc's
+> pulses-per-tick integer and buying triplet grids as a side effect).
+> Wall time enters the system through exactly one door — tickMs =
+> 60000/(bpm × tpb) — so `ticks(8) + bpm(104)` is byte-identical in tick
+> rate to the old `bpm(208)` CLAVIER-port workaround; the difference is
+> that bpm(208) LIED to every beat-consumer (beat-synced @0-@9 LFOs,
+> 'b'/'bar' cycle specs, visuals beat()/bar(), the bpm display, future
+> MIDI clock send). The invariant: **ticks() changes what a beat means,
+> never what a tick does** — grid operators (C/P/E rates, Z hold, F/G
+> curves) are tick-denominated and untouched; only the beat-labeled layer
+> rescales. Roles: ticks() is a declaration (once per patch, like grid());
+> bpm stays the performance knob; the toolbar shows the composite when
+> tpb ≠ 4. Ordering rule: ticks() must precede beat-relative mounts
+> (cycle specs resolve at mount time; enforced with a clear error).
+> CLAVIER port rule becomes honest: `ticks(8); bpm(<clavier tempo>)`
+> verbatim — the double-the-bpm hack retires. Deliberately NOT built:
+> changing the global default, non-integer ratios, per-operator tick
+> scaling (the single global quantum is what keeps the grid legible).
+> Rides along: visuals beat()/bar() hardcoded 4/16 fixed to read tpb.
+>
 > 2026-08-01: `&` presence-conjunction IMPLEMENTED — the first deliberate
 > eval-semantics divergence from CLAVIER, in previously-unclaimed space:
 > `&` of a bang and a literal (either order) now bangs, where both systems

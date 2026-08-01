@@ -61,6 +61,8 @@ function evalMountSource(source, { flash = false } = {}) {
   // the widgets remain live nudgers between evals
   if (!result.error) {
     if (mounts.bpm !== null) bpmInput.value = mounts.bpm;
+    // tick-grain indicator: visible only when a patch redeclares the beat
+    $('tpb-ind').textContent = mounts.ticksPerBeat !== 4 ? `×${mounts.ticksPerBeat}t` : '';
     if (mounts.gridSize) {
       const { w, h } = mounts.gridSize;
       if (w !== machine.width || h !== machine.height) {
@@ -158,6 +160,7 @@ $('pane-toggle').addEventListener('click', () => toggleMountPane());
 let playing = false;
 const clock = new Clock({
   getBpm: () => Number(bpmInput.value) || 120,
+  getTpb: () => mounts.ticksPerBeat || 4,
   onTick: (tick, timeMs) => {
     machine.step();
     const tickMs = clock.tickMs();
@@ -207,6 +210,7 @@ const clock = new Clock({
 setVisualsDeps({
   getMachine: () => machine,
   getMounts: () => mounts,
+  getTpb: () => mounts.ticksPerBeat || 4,
   gridCanvas: canvas,
   tickFrac: () => {
     if (!playing) return 0;

@@ -118,7 +118,7 @@
   <div id="toolbar">
     <div class="group">
       <button id="play">▶ play</button>
-      <label>bpm</label><input id="bpm" type="number" min="20" max="300" value="120" />
+      <label>bpm</label><input id="bpm" type="number" min="20" max="300" value="120" /><label id="tpb-ind" title="ticks per beat — declared by ticks(n) in the mount doc"></label>
       <label>grid</label><input id="grid-w" type="number" min="8" max="128" value="64" /><label>×</label><input id="grid-h" type="number" min="8" max="64" value="32" />
       <button id="panic" title="all notes off (⌘.)">panic</button>
     </div>
@@ -177,7 +177,8 @@
         <b>@a</b> lfo · <b>$a</b> pattern · <b>@2a</b> device-qualified<br/>
         lfo(shape).cycle('4b').range(40,90).phase(p).mod('rate')<br/>
         pat("x(5,8)").gsteps(8) · .cycle('2b') = rate-driven<br/>
-        bpm(120) · grid(64,32) · devices({0:'IAC', 3:null})<br/>
+        bpm(120) · ticks(8) · grid(64,32) · devices({0:'IAC', 3:null})<br/>
+        ticks(n) = ticks per beat (default 4, divisors of 24) — declare before beat-relative mounts<br/>
         double quotes = mini-notation · single = plain strings<br/>
         <h3>transport</h3>
         <b>⌘↵</b> grid: play/stop · editor: evaluate · <b>⌘.</b> panic<br/>
