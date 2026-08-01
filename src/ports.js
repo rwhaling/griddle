@@ -2,7 +2,7 @@
 // under the cursor, with live port values and resolved mounts) and the
 // grid's port highlighting. One table, two consumers.
 
-import { OP, TYPE, getType, cellToChar, toB36Char } from './values.js';
+import { OP, TYPE, getType, cellToChar } from './values.js';
 
 // ins: [westOffset, label]; outs: [dx, dy, label] (write positions)
 export const PORTS = {
@@ -79,7 +79,7 @@ export function describeAt(machine, x, y) {
       if (getType(slotCell.flags) === TYPE.LITERAL) {
         const dev = getType(devCell.flags) === TYPE.LITERAL ? devCell.letter : 0;
         const art = machine.mounts?.lookup(sigil, dev, slotCell.letter);
-        resolved = ` → ${sigil}${toB36Char(slotCell.letter)} ${summarizeArtifact(art)}`;
+        resolved = ` → ${summarizeArtifact(art)}`;
       } else {
         resolved = ' → no slot';
       }

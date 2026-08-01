@@ -62,14 +62,15 @@ export function looksLikePatch(state) {
 }
 
 // legacy slot-panel patterns -> mount-document lines (slot-panel retirement:
-// old patches migrate by textualization at load)
+// old patches migrate by textualization at load; emits the sigil-free
+// spelling since 2026-08-01)
 export function textualizeSlots(slots) {
   const lines = [];
   (slots ?? []).forEach((s, i) => {
     if (!s?.code?.trim()) return;
     const code = s.code.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
     const steps = s.steps ? `.gsteps(${s.steps})` : '';
-    lines.push(`$${i.toString(36)}: pat('${code}')${steps}`);
+    lines.push(`mountPattern(${i}, pat('${code}')${steps})`);
   });
   if (lines.length) {
     lines.unshift('// migrated from the legacy slot panel:');

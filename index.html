@@ -174,7 +174,8 @@
         <b>⌘drag</b> wire (repeat removes) · <b>⌘C/X/V</b> copy/cut/paste<br/>
         <b>⌥arrows</b> leap ×8 · <b>[ ]</b> zoom · cursor auto-pans<br/>
         <h3>mounts (⌘E)</h3>
-        <b>@a</b> lfo · <b>$a</b> pattern · <b>@2a</b> device-qualified<br/>
+        <b>mountSignal(slot, lfo(...))</b> → F · <b>mountPattern(slot, pat(...))</b> → U/V<br/>
+        slots: 0-35 or 'a' · device-qualified: '2a' · (legacy '@a'/'$a' still parse)<br/>
         lfo(shape).cycle('4b').range(40,90).phase(p).mod('rate')<br/>
         pat("x(5,8)").gsteps(8) · .cycle('2b') = rate-driven<br/>
         bpm(120) · ticks(8) · grid(64,32) · devices({0:'IAC', 3:null})<br/>

@@ -235,6 +235,24 @@ file) or live MIDI input. Keep this boundary legible — it's a feature.
 > `griddle-clap-daemon-design.md` — spike required before building; no
 > implementation commitment.
 >
+> 2026-08-01: `mountSignal`/`mountPattern` IMPLEMENTED — sigil-free mount
+> refs, by user preference for readability. Slots are numbers 0–35 or
+> chars; device-qualified stays the two-char string ('2a'). The sigil was
+> redundant: it tagged the target table, which the definition's type
+> already determines (lfo() → the F table, patterns → the U/V table). All
+> generated and displayed text is now sigil-free: DEFAULT_MOUNT_DOC
+> (rewritten concat-free with numeric refs), textualizeSlots migration
+> output, the context-line display, the ref card. Legacy forms —
+> mount('@a')/mount('$3') and @a:/$b: labels — keep parsing so every
+> saved patch loads unmodified; internal table keys keep the sigils
+> (interpreter untouched). **Future option, recorded**: eliminate sigil
+> parsing entirely (mount(), the label prepass, and the internal key
+> scheme) once the saved-patch corpus is migrated to the new spelling —
+> a deliberate breaking cleanup to schedule at a quiet moment, like bang
+> evaporation. Gotcha discovered: template literals are mini-notation to
+> the transpiler (like double quotes) — mount docs must build strings
+> with single-quote concat.
+>
 > 2026-08-01: `ticks(n)` IMPLEMENTED — ticks-per-beat as a per-patch mount
 > statement (default 4; n must divide 24, keeping the MIDI-clock doc's
 > pulses-per-tick integer and buying triplet grids as a side effect).

@@ -50,8 +50,8 @@ describe('legacy slot textualization', () => {
       { code: '', steps: null },
     ]);
     expect(lines.length).toBe(3); // comment + two mounts
-    expect(lines[1]).toBe(`$0: pat('x(5,8)').gsteps(8)`);
-    expect(lines[2]).toBe(`$1: pat('0 2 4 <7 9> 4 2')`);
+    expect(lines[1]).toBe(`mountPattern(0, pat('x(5,8)').gsteps(8))`);
+    expect(lines[2]).toBe(`mountPattern(1, pat('0 2 4 <7 9> 4 2'))`);
     // and the generated lines actually evaluate
     const table = evaluateMountDoc(lines.join('\n'));
     expect(table.entries.get('$0').steps).toBe(8);

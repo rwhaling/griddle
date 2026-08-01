@@ -552,6 +552,17 @@ export function resolveSynthControls(def, ctx) {
   });
 }
 
+// slot refs for mountSignal/mountPattern: number 0-35, one base36 char, or
+// device-qualified two chars ('2a')
+const normalizeSlotRef = (ref, fn) => {
+  ref = unwrapToken(ref);
+  if (typeof ref === 'number' && Number.isInteger(ref) && ref >= 0 && ref < 36) {
+    return ref.toString(36);
+  }
+  if (typeof ref === 'string' && /^[0-9a-z]{1,2}$/.test(ref)) return ref;
+  throw new Error(`${fn}: bad slot ref ${JSON.stringify(ref)} (0-35, 'a', or device-qualified '2a')`);
+};
+
 // mount-time collection context (single-threaded eval)
 let collector = null;
 const activeCollector = () => {
@@ -615,10 +626,12 @@ export function evaluateMountDoc(source) {
       }
       table.gridSize = { w, h };
     },
+    // legacy sigil form — kept parsing forever for saved patches; all
+    // generated and documented text uses mountSignal/mountPattern instead
     mount: (ref, def) => {
       ref = unwrapToken(ref);
       if (typeof ref !== 'string' || !/^[@$][0-9a-z]{1,2}$/.test(ref)) {
-        throw new Error(`bad mount ref: ${ref} (use single-quoted '@a' / '$2f')`);
+        throw new Error(`bad mount ref: ${ref} (use mountSignal/mountPattern, or legacy '@a' / '$2f')`);
       }
       if (ref[0] === '@') {
         if (!(def instanceof LfoDef)) throw new Error(`${ref}: @ mounts take lfo(...) definitions`);
@@ -627,6 +640,18 @@ export function evaluateMountDoc(source) {
         const pd = def instanceof PatternDef ? def : new PatternDef(def);
         table.entries.set(ref, pd.compile());
       }
+    },
+    // sigil-free refs (2026-08-01): slot as number 0-35 or char '0'-'z',
+    // device-qualified as two chars '2a'. The table is implied by the type —
+    // signals feed F, patterns feed U/V. Internal keys keep the sigils.
+    mountSignal: (ref, def) => {
+      if (!(def instanceof LfoDef)) throw new Error('mountSignal takes lfo(...) definitions');
+      table.entries.set('@' + normalizeSlotRef(ref, 'mountSignal'), def.compile());
+    },
+    mountPattern: (ref, def) => {
+      if (def instanceof LfoDef) throw new Error('mountPattern takes patterns — use mountSignal for lfo(...)');
+      const pd = def instanceof PatternDef ? def : new PatternDef(def);
+      table.entries.set('$' + normalizeSlotRef(ref, 'mountPattern'), pd.compile());
     },
     pat,
     // the mini plugin rewrites double-quoted strings to m(str, ...locations);
@@ -676,24 +701,23 @@ export function evaluateMountDoc(source) {
 export const DEFAULT_MOUNT_DOC = `// griddle mounts — ⌘↵ to apply · later lines override earlier
 // double quotes = mini-notation · single quotes = plain strings
 
-// LFOs · @0-@9: beat-synced (period = n beats, 0 = half), phase-locked
-'0123456789'.split('').forEach((ch, d) =>
-  mount('@' + ch, lfo(tri).cycle((d === 0 ? 0.5 : d) + 'b').sync().mod('rate', 0.5, 2)))
+// signal slots (read by F) · slots are numbers 0-35 or chars '0'-'z'
+// 0-9: beat-synced (period = n beats, 0 = half), phase-locked
+for (let n = 0; n < 10; n++)
+  mountSignal(n, lfo(tri).cycle(n || 0.5).sync().mod('rate', 0.5, 2))
 
-// LFOs · @a-@z: slow free-running spread, 2 bars .. 128 bars · mod = fine rate
+// slots a-z: slow free-running spread, 2 bars .. 128 bars · mod = fine rate
 spread('2bar', '128bar', 26).forEach((c, i) =>
-  mount('@' + 'abcdefghijklmnopqrstuvwxyz'[i], lfo(tri).cycle(c).mod('rate', 0.5, 2)))
+  mountSignal(i + 10, lfo(tri).cycle(c).mod('rate', 0.5, 2)))
 
-// patterns · euclidean tables (positional: drive port = position)
-// $1-$8: x(n,8) · $9: x(9,16) · $a-$p: x(1..16,16) · $q-$z: x(1..10,12) · $0: silence
-'12345678'.split('').forEach((ch, i) =>
-  mount('$' + ch, pat('x(' + (i + 1) + ',8)').gsteps(8)))
-mount('$9', pat('x(9,16)').gsteps(16))
-'abcdefghijklmnop'.split('').forEach((ch, i) =>
-  mount('$' + ch, pat('x(' + (i + 1) + ',16)').gsteps(16)))
-'qrstuvwxyz'.split('').forEach((ch, i) =>
-  mount('$' + ch, pat('x(' + (i + 1) + ',12)').gsteps(12)))
-mount('$0', pat('~').gsteps(8))
+// pattern slots (read by U/V) · euclidean tables (positional: drive = position)
+// 1-8: x(n,8) · 9: x(9,16) · a-p: x(1..16,16) · q-z: x(1..10,12) · 0: silence
+// (single-quoted concat: backticks are mini-notation here, like double quotes)
+for (let n = 1; n <= 8; n++) mountPattern(n, pat('x(' + n + ',8)').gsteps(8))
+mountPattern(9, pat('x(9,16)').gsteps(16))
+for (let n = 1; n <= 16; n++) mountPattern(n + 9, pat('x(' + n + ',16)').gsteps(16))
+for (let n = 1; n <= 10; n++) mountPattern(n + 25, pat('x(' + n + ',12)').gsteps(12))
+mountPattern(0, pat('~').gsteps(8))
 
 // synth device z — built-in superdough voices, no MIDI needed (doc nine)
 // point a Z at device z; channel picks the voice; layers = osc+noise drums
@@ -709,8 +733,8 @@ devices({
 })
 
 // overrides go below, e.g.:
-// @p: lfo(tri).cycle('196t').phase(0.42)
-// $b: note("c3 [e3 g3] a2 <g3 b3>").cycle('2b').vel(85)
+// mountSignal('p', lfo(tri).cycle('196t').phase(0.42))
+// mountPattern('b', note("c3 [e3 g3] a2 <g3 b3>").cycle('2b').vel(85))
 `;
 
 // convenience: evaluate with last-good retention + error capture

@@ -23,7 +23,7 @@ describe('context inspector (describeAt)', () => {
     const d = describeAt(m, 8, 1);
     expect(d).toContain('F · mounted lfo');
     expect(d).toContain('slot 8');
-    expect(d).toContain('@8 lfo shape 256t'); // 16 bars = 256 ticks
+    expect(d).toContain('→ lfo shape 256t'); // 16 bars = 256 ticks; sigil-free display
   });
 
   it('reports NO MOUNT for unmounted slots', () => {
