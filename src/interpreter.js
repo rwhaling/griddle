@@ -23,7 +23,7 @@ import {
   valueToInternal, intHash, NOISE_STEPS,
 } from './modulation.js';
 import {
-  positionalWindow, sweepWindow, coercePatternValue, noteFromValue, velocityFromValue,
+  positionalWindow, sweepWindow, coercePatternValue, noteFromValue, velocityFromValue, channelFromValue,
   isFalsyValue,
 } from './mounts.js';
 
@@ -722,14 +722,46 @@ export class Machine {
             const [rlo = 0.5, rhi = 2] = art.mod.args;
             inc *= rlo * (rhi / rlo) ** (modVal / 35);
           }
-          if (bang && !art.sync) st.phase = 0;
           const phaseOff = modIs('phase') ? modVal / 36 : 0;
-          // phase is UNBOUNDED absolute pattern time: alternations and
-          // long-form structure keep unfolding (doc seven §1) — no wrapping
-          const a = (art.sync ? this.metronome * inc : st.phase) + phaseOff;
-          win = sweepWindow(art, a, inc);
-          if (!art.sync) st.phase += inc;
           ticksPerCycle = art.cycleTicks;
+          // trig = adjacent bang EXCLUDING the south cell: that is the op's
+          // own struck face, and an output must not read back as its own
+          // launch/reset. (Novel to griddle — CLAVIER checks all four sides,
+          // but its powered trigger ops never emit bangs, so the self-trigger
+          // case cannot arise there.)
+          const trig =
+            bang &&
+            [[0, -1], [1, 0], [-1, 0]].some(
+              ([dx, dy]) => getType(m.get(x + dx, y + dy).flags) === TYPE.BANG,
+            );
+          if (art.oneshot) {
+            // oneshot lifecycle (doc seven §11): bang = launch, not phase
+            // reset. Launch snaps to the next whole cycle index — each trig
+            // serves fresh material (alternations advance, randomness
+            // re-rolls); a bang mid-flight lands on the same line = restart.
+            if (trig) {
+              st.phase = Math.ceil(st.phase);
+              st.flight = 1;
+            }
+            if (st.flight == null) {
+              win = { onsets: [], activeVal: null, bang: false }; // armed
+            } else {
+              // clamp the last window to the cycle boundary: rate mods warp
+              // the fill's wall-time, never its material length
+              const step = Math.min(inc, st.flight);
+              win = sweepWindow(art, st.phase + phaseOff, step);
+              st.phase += step;
+              st.flight -= step;
+              if (st.flight <= 1e-9) st.flight = null;
+            }
+          } else {
+            if (trig && !art.sync) st.phase = 0;
+            // phase is UNBOUNDED absolute pattern time: alternations and
+            // long-form structure keep unfolding (doc seven §1) — no wrapping
+            const a = (art.sync ? this.metronome * inc : st.phase) + phaseOff;
+            win = sweepWindow(art, a, inc);
+            if (!art.sync) st.phase += inc;
+          }
         }
 
         // grid face: U = struck (onsets in window), V = sounding
@@ -768,7 +800,9 @@ export class Machine {
             if (modIs('velocity')) velocity = Math.round((velocity * modVal) / 35);
             this.noteEvents.push({
               device,
-              channel: chCell.letter,
+              // channel port = default; haps carrying .channel() override
+              // (2026-08-02) — one pattern can address a whole kit
+              channel: channelFromValue(onset.value, chCell.letter),
               note: Math.max(0, Math.min(127, note)),
               velocity: Math.max(1, Math.min(127, velocity)),
               frac: onset.frac,

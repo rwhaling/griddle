@@ -264,6 +264,7 @@ class PatternDef {
     this._note = null;
     this._mod = null;
     this._sync = false;
+    this._oneshot = false;
   }
 
   _clone() {
@@ -313,6 +314,14 @@ class PatternDef {
     return d;
   }
 
+  // oneshot lifecycle (doc seven §11): armed until an adjacent bang, then
+  // exactly one cycle of flight at the declared duration, then re-arm.
+  oneshot() {
+    const d = this._clone();
+    d._oneshot = true;
+    return d;
+  }
+
   mod(name, ...args) {
     name = unwrapToken(name);
     if (isStrudelPattern(name)) {
@@ -333,6 +342,10 @@ class PatternDef {
   }
 
   compile() {
+    if (this._oneshot) {
+      if (this._cycle === null) throw new Error('.oneshot() needs .cycle(d) — a oneshot plays one cycle per trig');
+      if (this._sync) throw new Error('.oneshot() rejects .sync() — a oneshot has no standing phase to anchor');
+    }
     const auto = Number(this._pattern._steps);
     return {
       kind: 'pattern',
@@ -344,6 +357,7 @@ class PatternDef {
       note: this._note,
       mod: this._mod,
       sync: this._sync,
+      oneshot: this._oneshot,
     };
   }
 }
@@ -353,7 +367,7 @@ export const pat = (p) => new PatternDef(p);
 // Pattern.prototype extensions — ONLY names verified free of strudel claims
 // (note/vel/oct/sync collide with strudel controls, so they live on the
 // wrapper: start a griddle chain with cycle/gsteps/base/mod or pat()).
-for (const name of ['cycle', 'gsteps', 'base', 'mod']) {
+for (const name of ['cycle', 'gsteps', 'base', 'mod', 'oneshot']) {
   try {
     Object.defineProperty(Pattern.prototype, name, {
       value: function (...args) {
@@ -488,6 +502,16 @@ export function velocityFromValue(value, art) {
     return Math.max(1, Math.min(127, Math.round(value.velocity * 127)));
   }
   return art.vel;
+}
+
+// per-hap channel (2026-08-02): the channel port is the default, a hap
+// carrying .channel() overrides — one pattern can address a whole kit
+export function channelFromValue(value, fallback) {
+  if (value && typeof value === 'object' && value.channel != null) {
+    const c = Number(value.channel);
+    if (Number.isFinite(c)) return Math.max(0, Math.min(RADIX - 1, Math.round(c)));
+  }
+  return fallback;
 }
 
 // ---------------------------------------------------------------------------
@@ -673,7 +697,7 @@ export function evaluateMountDoc(source) {
     noise: 'noise',
     mini,
     ...Object.fromEntries(
-      ['cat', 'stack', 'seq', 'sequence', 'fastcat', 'slowcat', 'silence', 'note', 'n', 'run', 'irand', 'choose']
+      ['cat', 'stack', 'seq', 'sequence', 'fastcat', 'slowcat', 'silence', 'note', 'n', 'run', 'irand', 'choose', 'channel', 'velocity']
         .filter((k) => strudel[k] !== undefined)
         .map((k) => [k, strudel[k]]),
     ),

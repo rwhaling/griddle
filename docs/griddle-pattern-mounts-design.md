@@ -368,10 +368,10 @@ opt-in, `devices({n: null})` black hole, garbage-port fallthrough
 (the §5 theorem as a test). Migration: slot-array → mount-source
 textualization round-trip.
 
-## 11. Oneshot patterns (designed 2026-08-02, NOT implemented — hold)
+## 11. Oneshot patterns (designed 2026-08-02, IMPLEMENTED 2026-08-02)
 
-*User-driven design, from the tutorial-writing sessions. Do not build
-until asked.*
+*User-driven design, from the tutorial-writing sessions. Built same day;
+build decisions recorded in §11.6.*
 
 ### 11.1 The reframe: lifecycle, not gating
 
@@ -431,7 +431,7 @@ objects for note and velocity. Remaining work: widen the curated
 free-name list as fills demand (enumerate at implementation), and the
 §11.4 channel question.
 
-### 11.4 Open questions (ask before building)
+### 11.4 Open questions (resolved at build — dispositions in §11.6)
 
 1. **Per-hap channel** — multi-voice fills. Today U/V emit on the
    channel port's value; a kit-wide fill needs either several oneshot
@@ -457,6 +457,40 @@ positional as the reveal (the language's founding move, framed as
 signature rather than variant), then oneshot as its own section (the
 arc: pattern-owns-time → grid-owns-time → event-owns-time). Order of
 presentation inverted; order of importance not.
+
+### 11.6 Build decisions (2026-08-02)
+
+- **Surface**: `.oneshot()` on PatternDef (and on `Pattern.prototype`,
+  the name is free of strudel claims). Mount-time rejections: without
+  `.cycle()` ("a oneshot plays one cycle per trig"), with `.sync()`
+  ("no standing phase to anchor").
+- **Lifecycle state**: `st.flight` — null = armed, else cycles of
+  material remaining (starts at 1). Launch snaps `phase =
+  ceil(phase)` — next whole cycle index; retrigger mid-flight hits the
+  same line = restart-at-next-index. One code path covers both §11.2
+  rules.
+- **Rate mods warp wall-time, never material length**: flight
+  decrements by the post-warp increment, and the final window is
+  clamped to the cycle boundary (`step = min(inc, flight)`) so a
+  warped fill never leaks the next cycle's opening material.
+- **Per-hap channel (§11.4 #1): BUILT**, and not oneshot-specific —
+  the emission path resolves `hap.channel ?? channel port` for all
+  three modes (`channelFromValue`, mounts.js). The channel port stays
+  the opt-in gate; the hap value overrides the default. One pattern
+  addresses a whole kit: `channel("3 [3 4] 3 [4 5 5]").cycle('1b').oneshot()`.
+  `channel` and `velocity` added to the curated free-name scope.
+- **Launch quantization (§11.4 #2) and grain mods (§11.4 #3): deferred**,
+  as recorded.
+- **Retrigger/advance defaults (§11.4 #4): re-confirmed** at build time.
+- **Self-bang exclusion** (surfaced by the build): a U's struck face is
+  a bang on its own south cell, and CLAVIER-style four-sided bang
+  adjacency read it back as the op's own launch/reset — a fill's first
+  onset re-launched it forever, and running-mode bang-reset had the
+  same latent lock. Novel to griddle: CLAVIER checks all four sides
+  but its powered trigger ops never emit bangs. Rule: **the output is
+  not an input** — U/V launch/reset trigs listen on north/east/west
+  only. (The generic unpowered-eval bang gate is untouched: the
+  CLAVIER-faithful self-sustain trap remains for unpowered ops.)
 
 ## 12. Source references
 

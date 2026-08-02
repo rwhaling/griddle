@@ -259,3 +259,154 @@ describe('defaults and demo', () => {
     expect(charAt(m2, 8, 2)).toBe('9');
   });
 });
+
+describe('oneshot patterns (doc seven §11, 2026-08-02)', () => {
+  // bangs persist until overwritten — tests clear the trig cell after launch
+  const trig = (m) => place(m, 8, 0, '!');
+  const clearTrig = (m) => m.grid.set(8, 0, { flags: 0, letter: 0 });
+
+  it('mount-time validation: oneshot needs cycle, rejects sync', () => {
+    expect(() => evaluateMountDoc(`$a: pat('x*4').oneshot()`)).toThrow(/needs .cycle/);
+    expect(() => evaluateMountDoc(`$a: pat('x*4').cycle('4t').sync().oneshot()`)).toThrow(/sync/);
+  });
+
+  it('armed = silent; launch plays exactly one cycle, then re-arms', () => {
+    const doc = `$a: pat('x*4').cycle('4t').note(36).oneshot()`;
+    const m = uvMachine(doc, 'U', { ch: '1' });
+    // armed: powered, evaluating every tick, emitting nothing
+    for (let i = 0; i < 3; i++) {
+      m.step();
+      expect(m.noteEvents.length).toBe(0);
+      expect(charAt(m, 8, 2)).toBe('.');
+    }
+    // launch: one onset per tick for exactly 4 ticks, then silence again
+    trig(m);
+    const counts = [];
+    for (let i = 0; i < 7; i++) {
+      m.step();
+      if (i === 0) clearTrig(m);
+      counts.push(m.noteEvents.length);
+    }
+    expect(counts).toEqual([1, 1, 1, 1, 0, 0, 0]);
+  });
+
+  it('successive trigs advance the cycle count: alternations vary per launch', () => {
+    const doc = `$a: note("<60 62 64>").cycle('1t').oneshot()`;
+    const m = uvMachine(doc, 'V', { ch: '1' });
+    const launches = [];
+    for (let i = 0; i < 3; i++) {
+      trig(m);
+      m.step();
+      clearTrig(m);
+      launches.push(m.noteEvents[0]?.note);
+      m.step(); // an armed gap between trigs
+      expect(m.noteEvents.length).toBe(0);
+    }
+    expect(launches).toEqual([60, 62, 64]);
+  });
+
+  it('retrigger mid-flight restarts at the next cycle index', () => {
+    const doc = `$a: note("<[60 61 62 63] [72 73 74 75]>").cycle('4t').oneshot()`;
+    const m = uvMachine(doc, 'V', { ch: '1' });
+    const notes = [];
+    const stepNote = () => {
+      m.step();
+      notes.push(m.noteEvents[0]?.note ?? null);
+    };
+    trig(m);
+    stepNote(); // launch: cycle 0 begins
+    clearTrig(m);
+    stepNote();
+    trig(m);
+    stepNote(); // retrigger mid-flight: restart from cycle 1's top
+    clearTrig(m);
+    stepNote();
+    stepNote();
+    stepNote();
+    stepNote(); // flight over — armed
+    expect(notes).toEqual([60, 61, 72, 73, 74, 75, null]);
+  });
+
+  it('rate mod warps flight wall-time, never material length', () => {
+    // 8t cycle at mod z = double speed: 4 onsets land in 4 ticks, not 8,
+    // and the clamped final window never leaks the next cycle's material
+    const doc = `$a: pat('x*4').cycle('8t').note(36).mod('rate', 0.5, 2).oneshot()`;
+    const m = uvMachine(doc, 'U', { ch: '1', drive: 'z' });
+    trig(m);
+    const counts = [];
+    for (let i = 0; i < 8; i++) {
+      m.step();
+      if (i === 0) clearTrig(m);
+      counts.push(m.noteEvents.length);
+    }
+    expect(counts).toEqual([1, 1, 1, 1, 0, 0, 0, 0]);
+  });
+
+  it('velocity mod applies during flight', () => {
+    const doc = `$a: pat('x*4').cycle('4t').note(36).vel(100).mod('velocity').oneshot()`;
+    const m = uvMachine(doc, 'U', { ch: '1', drive: 'z' });
+    trig(m);
+    m.step();
+    expect(m.noteEvents[0].velocity).toBe(100); // 100 * 35/35
+  });
+
+  it('running and positional mounts are untouched (regression)', () => {
+    // running: bang still means phase reset, not launch
+    const run = uvMachine(`$a: pat('0 1 2 3').cycle('4t')`, 'V');
+    run.step();
+    run.step();
+    expect(charAt(run, 8, 2)).toBe('1');
+    place(run, 8, 0, '!');
+    run.step();
+    expect(charAt(run, 8, 2)).toBe('0');
+  });
+
+  it("a U's own struck face never re-triggers it (self-bang exclusion)", () => {
+    // running U with an onset at phase 0: without the south-cell exclusion,
+    // its own face bang re-reset the phase every tick, locking the sweep
+    // at [0, inc) — an every-tick pulse instead of the pattern
+    const m = uvMachine(`$a: pat('x ~ x ~').cycle('4t').note(36)`, 'U', { ch: '1' });
+    const counts = [];
+    for (let i = 0; i < 4; i++) {
+      m.step();
+      counts.push(m.noteEvents.length);
+    }
+    expect(counts).toEqual([1, 0, 1, 0]);
+  });
+});
+
+describe('per-hap channel (2026-08-02): channel port is the default', () => {
+  it('haps carrying .channel() override the port — one pattern, whole kit', () => {
+    const doc = `$a: channel("3 4 5").gsteps(3)`;
+    const chans = [];
+    for (let p = 0; p < 3; p++) {
+      const m = uvMachine(doc, 'U', { ch: '1', drive: p.toString(36) });
+      m.step();
+      chans.push(m.noteEvents[0]?.channel);
+    }
+    expect(chans).toEqual([3, 4, 5]);
+  });
+
+  it('haps without channel fall back to the port; the port stays the gate', () => {
+    const plain = uvMachine(`$a: pat('x*4').cycle('4t').note(36)`, 'U', { ch: '9' });
+    plain.step();
+    expect(plain.noteEvents[0].channel).toBe(9);
+    // no channel literal = no MIDI face, even when haps carry channels
+    const gated = uvMachine(`$a: channel("3 4 5").gsteps(3)`, 'U', { drive: '0' });
+    gated.step();
+    expect(gated.noteEvents.length).toBe(0);
+  });
+
+  it('oneshot fills address the kit per hap', () => {
+    const doc = `$a: channel("3 [3 4] 3 [4 5 5]").cycle('4t').oneshot()`;
+    const m = uvMachine(doc, 'U', { ch: '3' });
+    place(m, 8, 0, '!');
+    const chans = [];
+    for (let i = 0; i < 4; i++) {
+      m.step();
+      if (i === 0) m.grid.set(8, 0, { flags: 0, letter: 0 });
+      chans.push(...m.noteEvents.map((e) => e.channel));
+    }
+    expect(chans).toEqual([3, 3, 4, 3, 4, 5, 5]);
+  });
+});
