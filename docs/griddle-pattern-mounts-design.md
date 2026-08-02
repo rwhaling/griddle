@@ -368,7 +368,97 @@ opt-in, `devices({n: null})` black hole, garbage-port fallthrough
 (the §5 theorem as a test). Migration: slot-array → mount-source
 textualization round-trip.
 
-## 11. Source references
+## 11. Oneshot patterns (designed 2026-08-02, NOT implemented — hold)
+
+*User-driven design, from the tutorial-writing sessions. Do not build
+until asked.*
+
+### 11.1 The reframe: lifecycle, not gating
+
+An earlier sketch ("struck mode": gate the positional MIDI face on
+power AND bang, Z-style) is **superseded**. The trigger question is not
+about gating emission — it is a third **lifecycle** for the accumulator
+family. Taxonomy after this design:
+
+| mode | mount | drive port | time source | emission |
+|---|---|---|---|---|
+| positional | `gsteps(S)` | position | the grid | free (window onsets) |
+| running | `cycle(d)` | declared mod | own accumulator, loops | free (sweep) |
+| **oneshot** | `cycle(d).oneshot()` | declared mod | own accumulator, **one pass per trig** | flight only |
+
+The ad-hoc struck idiom remains expressible as an *unpowered* positional
+U/V (evaluates once per bang — works today, with the known impurities:
+frozen grid face, and on cycle mounts the bang collides with phase
+reset). Oneshot is the principled replacement for the triggered use
+cases; the unpowered idiom stays undocumented-but-legal.
+
+### 11.2 Semantics
+
+- **Armed**: silent, grid face NONE, no emission. The operator must be
+  **powered** — a oneshot's flight spans many ticks, so it must evaluate
+  every tick; the adjacent bang is read as *launch*, not as the
+  unpowered evaluation gate. (Unpowered oneshot = one-tick sliver;
+  document as wrong.)
+- **Launch**: an adjacent bang starts the flight. Phase sweeps exactly
+  one cycle at the declared duration, the window emitting onsets as it
+  passes (the existing sweepWindow machinery); at cycle end the operator
+  stops and re-arms. Bang does NOT mean phase-reset on oneshot mounts —
+  the reset rule is exempted here.
+- **Successive trigs advance the cycle count** (unwrapped phase, the
+  house rule): `<fill1 fill2>` alternations serve a different fill per
+  trig, and in-pattern randomness (`choose`, `degradeBy`, `irand`)
+  re-rolls per launch. One mount line = endless variated fills. (The
+  replay-cycle-0 deterministic-sample variant is recorded as a possible
+  option, not default.)
+- **Retrigger mid-flight: restart** (at the next cycle index) — sampler
+  convention, consistent with bang-reset in running mode.
+- **Mods apply during flight**, read per tick as in running mode:
+  `rate` = fill playback speed (live-warpable mid-fill), `degrade` =
+  fill density, `velocity` = fill dynamics, `transpose` for V. V oneshot
+  is fully symmetric: a pitched run/arp gesture per trig.
+- `.sync()` is meaningless on a oneshot (there is no standing phase to
+  anchor) — reject or ignore with a warning; see §11.4 launch
+  quantization for the transport-flavored variant.
+
+### 11.3 Dependencies (thinner than they look)
+
+Full-strudel patterns in mounts are **mostly present already**: the doc
+runs the real transpiler, and all method-form combinators work on any
+mounted pattern today (`.fast`, `.every`, `.degradeBy`, `.velocity`, …
+— Pattern.prototype is not gated by the curated scope, which only
+controls free names). The emission path already honors per-hap control
+objects for note and velocity. Remaining work: widen the curated
+free-name list as fills demand (enumerate at implementation), and the
+§11.4 channel question.
+
+### 11.4 Open questions (ask before building)
+
+1. **Per-hap channel** — multi-voice fills. Today U/V emit on the
+   channel port's value; a kit-wide fill needs either several oneshot
+   U's sharing a trig (workable, very griddle) or haps carrying a
+   channel control (one pattern addresses the whole kit; the channel
+   port becomes the *default* rather than the truth). The latter is the
+   expressive win and a real semantics change — decide deliberately.
+2. **Launch quantization** — immediate launch (working default) vs
+   quantize-to-boundary, e.g. `.oneshot('1b')` = arm on bang, lift at
+   the next beat. Cheap to add later; recorded.
+3. **Grain-flavored mods** from the superseded struck sketch —
+   `.mod('length')` (scale emitted durations) and `.mod('stretch')`
+   (dilate slice-internal timing; legal past the tick since timestamps
+   are absolute). Still coherent, not required for fills; recorded.
+4. **Retrigger/advance defaults** (§11.2) — confirmed by user in
+   conversation, re-confirm at build time.
+
+### 11.5 Presentation (tutorial decision, recorded)
+
+Teaching order inverted from doc-seven tradition: running patterns
+first (the smallest step after F — "an F whose table has onsets"), then
+positional as the reveal (the language's founding move, framed as
+signature rather than variant), then oneshot as its own section (the
+arc: pattern-owns-time → grid-owns-time → event-owns-time). Order of
+presentation inverted; order of importance not.
+
+## 12. Source references
 
 | What | Where |
 |---|---|
