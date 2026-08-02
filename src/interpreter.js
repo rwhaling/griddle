@@ -749,7 +749,7 @@ export class Machine {
         ) {
           const modIs = (name) => art.mod?.name === name && modVal !== null;
           for (const onset of win.onsets) {
-            if (!isV && isFalsyValue(onset.value)) continue; // 'f'/0 don't trigger
+            if (!isV && isFalsyValue(onset.value)) continue; // explicit false doesn't strike; 0 is data (2026-08-02)
             if (modIs('degrade')) {
               // deterministic per-onset drop: hash the onset's absolute time
               const h = intHash(Math.round((this.metronome + onset.frac) * 46656));

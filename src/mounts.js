@@ -374,7 +374,11 @@ Pattern.prototype.p = function (label) {
 // ---------------------------------------------------------------------------
 // query-time helpers for U/V (pure; consumed by the interpreter)
 // ---------------------------------------------------------------------------
-const FALSY = new Set([false, 0, 'f', 'false', '~', '']);
+// Narrowed 2026-08-02: numeric 0 is DATA, not a rest — the same stance the
+// & presence-conjunction takes. Only explicit boolean falses (mini t/f
+// patterns produce real haps at f steps) fail to strike; numeric patterns
+// write rests as '~' (no hap, nothing to strike).
+const FALSY = new Set([false, 'f', 'false', '~', '']);
 export const isFalsyValue = (v) => FALSY.has(v);
 
 export const coercePatternValue = (v) => {

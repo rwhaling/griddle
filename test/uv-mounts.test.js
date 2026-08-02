@@ -182,6 +182,21 @@ describe('U trigger note defaults to base (2026-07-31)', () => {
     expect(n.noteEvents[0].note).toBe(37);
   });
 
+  it('falsy narrowed (2026-08-02): pitch-0 strikes, explicit false does not', () => {
+    // numeric 0 is data — U strikes it (was silently swallowed before)
+    const zero = uvMachine(`$a: pat("0 3").gsteps(2)`, 'U', { ch: '1', drive: '0' });
+    zero.step();
+    expect(zero.noteEvents.length).toBe(1);
+    // boolean f steps are real haps but do not strike
+    const bool = uvMachine(`$a: pat("t f").gsteps(2)`, 'U', { ch: '1', drive: '1' });
+    bool.step();
+    expect(bool.noteEvents.length).toBe(0);
+    // mini rests produce no hap at all — nothing to strike either way
+    const rest = uvMachine(`$a: pat("1 ~").gsteps(2)`, 'U', { ch: '1', drive: '1' });
+    rest.step();
+    expect(rest.noteEvents.length).toBe(0);
+  });
+
   it('the channel cell remains the one gate: no literal, no MIDI face', () => {
     const m = uvMachine(`$a: pat('x(5,8)').gsteps(8)`, 'U', { drive: '0' });
     m.step();

@@ -346,7 +346,13 @@ and it had one customer, who prefers migration.
 5. **Bulk-mount ref plumbing**: still open; `mounts({...})` relief valve
    unbuilt, no pressure yet.
 6. **U MIDI face velocity**: fixed `.vel()` only for now; FALSY onsets
-   don't trigger. Pattern-value-as-velocity remains open.
+   don't trigger. Pattern-value-as-velocity remains open. **Falsy set
+   NARROWED 2026-08-02** (user finding while drafting the tutorial):
+   numeric 0 no longer counts as falsy — it silently swallowed pitch-0
+   onsets and contradicted the `&` presence-conjunction stance that 0 is
+   data and absence is the rest. Only explicit boolean falses fail to
+   strike (mini t/f patterns produce real haps at f steps — the rule's
+   remaining purpose); numeric rests are `~`.
 
 ## 10. Testing plan (headless)
 
