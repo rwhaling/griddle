@@ -371,6 +371,27 @@ file) or live MIDI input. Keep this boundary legible — it's a feature.
   rate ticks). Superseded by explicit position — kept here for the record because it
   may return as a separate convenience operator.
 
+> 2026-08-05: solo IMPLEMENTED — `~` (shift-backtick, power's neighbor) on
+> an emitting operator (Z W U V F G) passes only that cell's events at the
+> output boundary; `~` again, or on any other cell, clears. Motivated by
+> Ableton MIDI-Learn (no numeric CC entry — it needs one clean stream) and
+> ruled out as an exclusive-power gesture because power state IS live-set
+> state (a saved patch may hold deliberately-unpowered voices that a
+> restore pass would clobber). Design: ephemeral host-level filter, never a
+> grid edit — the machine runs untouched (bangs flow, grid faces update),
+> power/mute bits never change, nothing serializes, cleared on patch load.
+> Mechanism: all three emission streams (scanMidi, noteEvents, ccEvents)
+> now stamp origin `sx/sy` (pure data, inside the determinism invariant);
+> main.js applies one predicate at drain time. On solo entry, in-flight
+> MIDI notes from other origins get immediate note-offs (their scheduled
+> offs still fire later — redundant, harmless); synth voices are
+> envelope-scheduled and ring out naturally (cutting them needs voice
+> handles — deferred). Stale-solo guard: if the soloed cell stops being an
+> emitting operator (edited away, resized out), solo auto-clears rather
+> than silently muting the patch. UI: bright box + underline on the cell,
+> `SOLO F@12,4` toolbar chip. Deferred: additive multi-solo (⌘~) — wants
+> its visual language worked out first.
+
 ## 7. Source references
 
 All paths relative to `/Users/richardwhaling/dev/griddle-research/`.

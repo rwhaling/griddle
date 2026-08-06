@@ -12,7 +12,7 @@ import { MountTable, tryEvaluate, DEFAULT_MOUNT_DOC } from './mounts.js';
 import { gridToRows, rowsToGrid, cellsToGrid, textualizeSlots, looksLikePatch } from './patchfile.js';
 import { describeAt } from './ports.js';
 import { DEMO } from './demo.js';
-import { charToCell } from './values.js';
+import { charToCell, getType, TYPE, OP, opChar } from './values.js';
 
 const GRID_W = 64;
 const GRID_H = 32;
@@ -40,7 +40,11 @@ const gridHInput = $('grid-h');
 const savePatchBtn = $('save-patch');
 const loadPatchInput = $('load-patch');
 
-const ui = new GridUI(canvas, machine, { onEdit: saveState });
+const ui = new GridUI(canvas, machine, {
+  onEdit: saveState,
+  onSoloToggle: (x, y) => toggleSolo(x, y),
+  getSolo: () => solo,
+});
 
 // ---- mount document (docs six/seven; LFO-only until doc seven phase 3) ----
 const mountPane = $('mount-pane');
@@ -156,6 +160,44 @@ function toggleMountPane(show) {
 
 $('pane-toggle').addEventListener('click', () => toggleMountPane());
 
+// ---- solo (0.1 doc): ephemeral output filter ----
+// `~` on an emitting operator passes only that cell's events at the output
+// boundary; the machine runs untouched underneath (power/mute bits never
+// change, nothing is serialized). Cleared on patch load and auto-cleared
+// when the soloed cell stops being an emitting operator.
+const SOLO_OPS = new Set([OP.MIDI, OP.MIDI_CC, OP.PATTERN_BANG, OP.PATTERN_VALUE, OP.LFO, OP.GLIDE]);
+let solo = null; // {x, y} | null
+let activeNotes = []; // MIDI-path notes in flight: {channel, note, sx, sy, end}
+const soloInd = $('solo-ind');
+
+const soloEligible = (x, y) => {
+  const c = machine.grid.get(x, y);
+  return getType(c.flags) === TYPE.OPERATOR && SOLO_OPS.has(c.letter);
+};
+
+function setSolo(next) {
+  solo = next;
+  if (solo) {
+    soloInd.textContent = `SOLO ${opChar(machine.grid.get(solo.x, solo.y).letter)}@${solo.x},${solo.y}`;
+    // cut sustained tails from everything else immediately (MIDI path;
+    // synth voices are envelope-scheduled and ring out naturally)
+    const now = performance.now();
+    for (const n of activeNotes) {
+      if (n.sx !== solo.x || n.sy !== solo.y) midi.noteOff(n.channel, n.note, now);
+    }
+    activeNotes = activeNotes.filter((n) => n.sx === solo.x && n.sy === solo.y);
+  } else {
+    soloInd.textContent = '';
+  }
+  ui.render();
+}
+
+function toggleSolo(x, y) {
+  if (solo && solo.x === x && solo.y === y) setSolo(null);
+  else if (soloEligible(x, y)) setSolo({ x, y });
+  else setSolo(null);
+}
+
 // ---- transport ----
 let playing = false;
 const clock = new Clock({
@@ -163,7 +205,12 @@ const clock = new Clock({
   getTpb: () => mounts.ticksPerBeat || 4,
   onTick: (tick, timeMs) => {
     machine.step();
+    // stale-solo guard: the cell was edited away or resized out — clear
+    // rather than silently muting the whole patch
+    if (solo && !soloEligible(solo.x, solo.y)) setSolo(null);
+    const pass = (e) => !solo || (e.sx === solo.x && e.sy === solo.y);
     const tickMs = clock.tickMs();
+    activeNotes = activeNotes.filter((n) => n.end > timeMs);
     // device routing (doc nine): a device whose mount is a synth definition
     // renders in-process via superdough; anything else goes to MIDI as before
     const routeNote = (e, at, durMs) => {
@@ -174,8 +221,10 @@ const clock = new Clock({
       }
       midi.noteOn(e.channel, e.note, e.velocity, at);
       midi.noteOff(e.channel, e.note, at + durMs);
+      activeNotes.push({ channel: e.channel, note: e.note, sx: e.sx, sy: e.sy, end: at + durMs });
     };
     for (const e of machine.scanMidi()) {
+      if (!pass(e)) continue;
       if (e.type === 'note') {
         routeNote(e, timeMs, Math.max(e.holdTicks, 0.25) * tickMs);
       } else if (e.type === 'cc') {
@@ -185,6 +234,7 @@ const clock = new Clock({
     // mounted U/V MIDI faces: notes at true fractional times, durations
     // from hap whole spans
     for (const e of machine.noteEvents) {
+      if (!pass(e)) continue;
       routeNote(e, timeMs + e.frac * tickMs, Math.max(e.durTicks * tickMs, 15));
     }
     // F/G smooth-CC crossings: sub-tick timestamps, thinned to >=5ms per
@@ -192,8 +242,9 @@ const clock = new Clock({
     const MIN_CC_MS = 5;
     const lastSent = new Map();
     const finalIdx = new Map();
-    machine.ccEvents.forEach((e, i) => finalIdx.set(`${e.device}:${e.channel}:${e.controller}`, i));
-    machine.ccEvents.forEach((e, i) => {
+    const ccs = machine.ccEvents.filter(pass);
+    ccs.forEach((e, i) => finalIdx.set(`${e.device}:${e.channel}:${e.controller}`, i));
+    ccs.forEach((e, i) => {
       const key = `${e.device}:${e.channel}:${e.controller}`;
       const at = timeMs + e.frac * tickMs;
       const prev = lastSent.get(key);
@@ -342,6 +393,7 @@ function buildState() {
 }
 
 function applyState(state) {
+  setSolo(null); // solo is a performance overlay, never document state
   bpmInput.value = state.bpm ?? 120;
   const w = Math.min(MAX_W, state.size?.w ?? GRID_W);
   const h = Math.min(MAX_H, state.size?.h ?? GRID_H);

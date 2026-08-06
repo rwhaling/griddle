@@ -277,14 +277,14 @@ export class Machine {
     if (disc || !pieces) {
       const c = cc7(currentV);
       if (c !== st.lastCC) {
-        this.ccEvents.push({ device, channel, controller, value7: c, frac: 0 });
+        this.ccEvents.push({ device, channel, controller, value7: c, frac: 0, sx: addr.x, sy: addr.y });
         st.lastCC = c;
       }
       return;
     }
     const result = crossings(pieces, st.lastCC);
     for (const e of result.events) {
-      this.ccEvents.push({ device, channel, controller, ...e });
+      this.ccEvents.push({ device, channel, controller, ...e, sx: addr.x, sy: addr.y });
     }
     st.lastCC = result.lastCC;
   }
@@ -545,6 +545,7 @@ export class Machine {
             device: readLiteral(read(5, 0), 0),
             channel: readLiteral(read(4, 0), 0),
             controllerCell: read(3, 0),
+            x, y,
           },
           st.v,
           pieces,
@@ -652,6 +653,7 @@ export class Machine {
               device,
               channel: readLiteral(read(6, 0), 0),
               controllerCell: read(5, 0),
+              x, y,
             },
             outV,
             pieces ? scalePieces(pieces, lo, hi) : null,
@@ -800,6 +802,8 @@ export class Machine {
             if (modIs('velocity')) velocity = Math.round((velocity * modVal) / 35);
             this.noteEvents.push({
               device,
+              sx: x,
+              sy: y,
               // channel port = default; haps carrying .channel() override
               // (2026-08-02) — one pattern can address a whole kit
               channel: channelFromValue(onset.value, chCell.letter),
@@ -852,6 +856,8 @@ export class Machine {
           events.push({
             type: 'note',
             device,
+            sx: x,
+            sy: y,
             channel,
             note: OCTAVE * octave + pitch,
             velocity: Math.floor((velocity * 127) / 35),
@@ -865,6 +871,8 @@ export class Machine {
           events.push({
             type: 'cc',
             device,
+            sx: x,
+            sy: y,
             channel,
             controller,
             value: Math.floor((knob * 127) / 35),

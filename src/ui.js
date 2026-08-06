@@ -39,6 +39,7 @@ const COLORS = {
   portIn: 'rgba(95, 143, 191, 0.55)', // inputs of the operator under cursor
   portOut: 'rgba(127, 212, 168, 0.55)', // its outputs
   lookup: 'rgba(232, 200, 106, 0.7)', // M's live scan head (always-on, CLAVIER-style)
+  solo: 'rgba(255, 120, 90, 0.95)', // soloed output operator (~ key, host filter)
 };
 
 const PATTERN_TAGS = new Set([30, 31]); // U, V
@@ -50,10 +51,12 @@ const ZOOM_MAX = 34;
 const ZOOM_STEP = 4;
 
 export class GridUI {
-  constructor(canvas, machine, { onEdit } = {}) {
+  constructor(canvas, machine, { onEdit, onSoloToggle, getSolo } = {}) {
     this.canvas = canvas;
     this.machine = machine;
     this.onEdit = onEdit;
+    this.onSoloToggle = onSoloToggle;
+    this.getSolo = getSolo;
     this.cursor = { x: 2, y: 2 };
     this.box = { w: 1, h: 1 }; // selection extends from cursor (top-left)
     this.clipboard = null;
@@ -291,6 +294,13 @@ export class GridUI {
         e.preventDefault();
         return;
       }
+      case '~': {
+        // solo (doc 0.1): ephemeral host-level output filter, not a grid
+        // edit — power/mute bits are untouched
+        this.onSoloToggle?.(this.cursor.x, this.cursor.y);
+        e.preventDefault();
+        return;
+      }
       case '#': {
         // mute toggle: if anything in the selection is unmuted, mute all;
         // otherwise unmute all (deterministic on mixed selections)
@@ -456,6 +466,17 @@ export class GridUI {
       ctx.lineWidth = 2;
       for (const [gx, gy] of ports.ins) this.underlineCell(gx, gy, COLORS.portIn);
       for (const [gx, gy] of ports.outs) this.underlineCell(gx, gy, COLORS.portOut);
+    }
+
+    // solo marker: bright box + underline on the soloed output operator —
+    // loud on purpose; a forgotten solo is the failure mode that bites live
+    const solo = this.getSolo?.();
+    if (solo) {
+      const [sx, sy] = this.toScreen(solo.x, solo.y);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = COLORS.solo;
+      ctx.strokeRect(sx + 1, sy + 1, this.cell - 2, this.cell - 2);
+      this.underlineCell(solo.x, solo.y, COLORS.solo);
     }
 
     // selection border + cursor

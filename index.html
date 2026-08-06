@@ -28,6 +28,7 @@
     }
     input[type="number"] { width: 54px; }
     label { color: #8a8f9a; font-size: 12px; }
+    #solo-ind { color: #ff785a; font-weight: 700; }
 
     /* ---- toolbar + context line ---- */
     #toolbar {
@@ -118,7 +119,7 @@
   <div id="toolbar">
     <div class="group">
       <button id="play">▶ play</button>
-      <label>bpm</label><input id="bpm" type="number" min="20" max="300" value="120" /><label id="tpb-ind" title="ticks per beat — declared by ticks(n) in the mount doc"></label>
+      <label>bpm</label><input id="bpm" type="number" min="20" max="300" value="120" /><label id="tpb-ind" title="ticks per beat — declared by ticks(n) in the mount doc"></label><label id="solo-ind" title="solo: only this operator's output passes (~ on the cell to toggle)"></label>
       <label>grid</label><input id="grid-w" type="number" min="8" max="128" value="64" /><label>×</label><input id="grid-h" type="number" min="8" max="64" value="32" />
       <button id="panic" title="all notes off (⌘.)">panic</button>
     </div>
