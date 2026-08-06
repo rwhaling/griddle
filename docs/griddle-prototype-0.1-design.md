@@ -382,11 +382,13 @@ file) or live MIDI input. Keep this boundary legible — it's a feature.
 > power/mute bits never change, nothing serializes, cleared on patch load.
 > Mechanism: all three emission streams (scanMidi, noteEvents, ccEvents)
 > now stamp origin `sx/sy` (pure data, inside the determinism invariant);
-> main.js applies one predicate at drain time. On solo entry, in-flight
-> MIDI notes from other origins get immediate note-offs (their scheduled
-> offs still fire later — redundant, harmless); synth voices are
-> envelope-scheduled and ring out naturally (cutting them needs voice
-> handles — deferred). Stale-solo guard: if the soloed cell stops being an
+> main.js applies one predicate at drain time. Note-offs need no special
+> handling: every note-on schedules its off at emit time (MIDI at the
+> driver, synth in the envelope), so notes sounding at solo entry end on
+> schedule — solo suppresses future emissions only, and nothing can hang.
+> (An earlier cut-tails-early ledger was built and removed same day:
+> user wants natural endings, and the ledger bought nothing else.)
+> Stale-solo guard: if the soloed cell stops being an
 > emitting operator (edited away, resized out), solo auto-clears rather
 > than silently muting the patch. UI: bright box + underline on the cell,
 > `SOLO F@12,4` toolbar chip. Deferred: additive multi-solo (⌘~) — wants

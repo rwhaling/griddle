@@ -167,7 +167,6 @@ $('pane-toggle').addEventListener('click', () => toggleMountPane());
 // when the soloed cell stops being an emitting operator.
 const SOLO_OPS = new Set([OP.MIDI, OP.MIDI_CC, OP.PATTERN_BANG, OP.PATTERN_VALUE, OP.LFO, OP.GLIDE]);
 let solo = null; // {x, y} | null
-let activeNotes = []; // MIDI-path notes in flight: {channel, note, sx, sy, end}
 const soloInd = $('solo-ind');
 
 const soloEligible = (x, y) => {
@@ -179,13 +178,8 @@ function setSolo(next) {
   solo = next;
   if (solo) {
     soloInd.textContent = `SOLO ${opChar(machine.grid.get(solo.x, solo.y).letter)}@${solo.x},${solo.y}`;
-    // cut sustained tails from everything else immediately (MIDI path;
-    // synth voices are envelope-scheduled and ring out naturally)
-    const now = performance.now();
-    for (const n of activeNotes) {
-      if (n.sx !== solo.x || n.sy !== solo.y) midi.noteOff(n.channel, n.note, now);
-    }
-    activeNotes = activeNotes.filter((n) => n.sx === solo.x && n.sy === solo.y);
+    // note-offs need no handling: every note-on schedules its off at emit
+    // time, so notes sounding at solo entry always end on schedule
   } else {
     soloInd.textContent = '';
   }
@@ -210,7 +204,6 @@ const clock = new Clock({
     if (solo && !soloEligible(solo.x, solo.y)) setSolo(null);
     const pass = (e) => !solo || (e.sx === solo.x && e.sy === solo.y);
     const tickMs = clock.tickMs();
-    activeNotes = activeNotes.filter((n) => n.end > timeMs);
     // device routing (doc nine): a device whose mount is a synth definition
     // renders in-process via superdough; anything else goes to MIDI as before
     const routeNote = (e, at, durMs) => {
@@ -221,7 +214,6 @@ const clock = new Clock({
       }
       midi.noteOn(e.channel, e.note, e.velocity, at);
       midi.noteOff(e.channel, e.note, at + durMs);
-      activeNotes.push({ channel: e.channel, note: e.note, sx: e.sx, sy: e.sy, end: at + durMs });
     };
     for (const e of machine.scanMidi()) {
       if (!pass(e)) continue;
