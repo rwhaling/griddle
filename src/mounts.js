@@ -649,8 +649,8 @@ export function evaluateMountDoc(source) {
     grid: (w, h) => {
       w = Math.round(Number(w));
       h = Math.round(Number(h));
-      if (!(w >= 8 && w <= 128 && h >= 8 && h <= 64)) {
-        throw new Error(`grid(${w}, ${h}): expected 8..128 x 8..64`);
+      if (!(w >= 8 && w <= 128 && h >= 8 && h <= 128)) {
+        throw new Error(`grid(${w}, ${h}): expected 8..128 x 8..128`);
       }
       table.gridSize = { w, h };
     },

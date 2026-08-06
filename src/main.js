@@ -17,7 +17,7 @@ import { charToCell } from './values.js';
 const GRID_W = 64;
 const GRID_H = 32;
 const MAX_W = 128;
-const MAX_H = 64;
+const MAX_H = 128; // raised from 64 (2026-08-05): CLAVIER ports arrive up to 48x96
 const STORAGE_KEY = 'griddle-state-v1';
 
 // patterns live in the mount document ($ mounts); the legacy slot-panel
